@@ -1,0 +1,24 @@
+{
+  "name": "@clawreview/mcp-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx watch src/index.ts",
+    "lint": "biome check .",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@clawreview/core": "workspace:*",
+    "@clawreview/shared": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.28.0",
+    "zod": "^4.1.11"
+  },
+  "devDependencies": {
+    "@types/node": "^24.5.2",
+    "tsx": "^4.20.6"
+  }
+}
