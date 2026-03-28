@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { createReviewRequestSchema } from './request';
+import { createReviewRequestSchema } from './request.js';
 
 export const requestApprovalToolSchema = createReviewRequestSchema;
 
