@@ -1,0 +1,15 @@
+import { z } from 'zod';
+
+import { createReviewRequestSchema } from './request';
+
+export const requestApprovalToolSchema = createReviewRequestSchema;
+
+export const requestApprovalResultSchema = z.object({
+  status: z.literal('pending_review'),
+  requestId: z.string().trim().min(1),
+  publicId: z.string().trim().min(1),
+  message: z.string().trim().min(1),
+});
+
+export type RequestApprovalToolInput = z.infer<typeof requestApprovalToolSchema>;
+export type RequestApprovalResult = z.infer<typeof requestApprovalResultSchema>;
