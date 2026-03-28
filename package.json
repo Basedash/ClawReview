@@ -1,0 +1,29 @@
+{
+  "name": "clawreview",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@10.32.1",
+  "scripts": {
+    "build": "pnpm --filter @clawreview/shared build && pnpm --filter @clawreview/core build && pnpm --filter @clawreview/server build && pnpm --filter @clawreview/mcp-server build && pnpm --filter @clawreview/web build",
+    "dev": "pnpm --parallel --filter @clawreview/server --filter @clawreview/web dev",
+    "dev:server": "pnpm --filter @clawreview/server dev",
+    "dev:web": "pnpm --filter @clawreview/web dev",
+    "dev:mcp": "pnpm --filter @clawreview/mcp-server dev",
+    "lint": "pnpm -r lint",
+    "test": "pnpm -r test"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.2.5",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
+  },
+  "pnpm": {
+    "overrides": {
+      "zod": "^4.1.11"
+    },
+    "onlyBuiltDependencies": [
+      "better-sqlite3",
+      "esbuild"
+    ]
+  }
+}
