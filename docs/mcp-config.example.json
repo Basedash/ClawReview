@@ -1,0 +1,19 @@
+{
+  "mcpServers": {
+    "clawreview": {
+      "command": "pnpm",
+      "args": [
+        "--dir",
+        "/absolute/path/to/ClawReview",
+        "--filter",
+        "@clawreview/mcp-server",
+        "dev"
+      ],
+      "env": {
+        "DATABASE_URL": "./data/clawreview.db",
+        "OPENCLAW_BASE_URL": "http://127.0.0.1:3456",
+        "OPENCLAW_GATEWAY_TOKEN": "replace-me"
+      }
+    }
+  }
+}
