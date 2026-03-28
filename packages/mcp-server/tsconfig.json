@@ -1,9 +1,15 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "composite": true,
-    "rootDir": "src",
-    "outDir": "dist"
+    "rootDir": "..",
+    "outDir": "dist",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "baseUrl": ".",
+    "paths": {
+      "@clawreview/core": ["../core/src/index.ts"],
+      "@clawreview/shared": ["../shared/src/index.ts"]
+    }
   },
-  "include": ["src", "tests"]
+  "include": ["src/**/*.ts", "tests/**/*.ts"]
 }
