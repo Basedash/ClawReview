@@ -1,12 +1,17 @@
 import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
-import { useEffect, useId, useMemo, useRef } from 'react';
 import Placeholder from '@tiptap/extension-placeholder';
 import { Markdown } from '@tiptap/markdown';
 import { EditorContent, useEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
+import { useEffect, useId, useMemo, useRef } from 'react';
+function SaveIndicator({ state }) {
+    if (state === 'idle')
+        return null;
+    const label = state === 'saving' ? 'Saving' : state === 'error' ? 'Save failed' : 'Saved';
+    return (_jsxs("span", { className: `save-indicator${state === 'saving' ? ' save-indicator--saving' : ''}${state === 'error' ? ' save-indicator--error' : ''}`, children: [_jsx("span", { className: "save-indicator__dot" }), label] }));
+}
 export function ReviewEditor({ value, readOnly, saveState, onChange, onFocusReady, }) {
     const labelId = useId();
-    const hintId = useId();
     const latestMarkdownRef = useRef(value);
     const onChangeRef = useRef(onChange);
     const extensions = useMemo(() => [
@@ -17,7 +22,7 @@ export function ReviewEditor({ value, readOnly, saveState, onChange, onFocusRead
             },
         }),
         Placeholder.configure({
-            placeholder: 'Write inline with markdown shortcuts like #, -, or **bold**.',
+            placeholder: 'Write with markdown shortcuts — #, -, **bold**, etc.',
         }),
     ], []);
     useEffect(() => {
@@ -35,8 +40,6 @@ export function ReviewEditor({ value, readOnly, saveState, onChange, onFocusRead
                 role: 'textbox',
                 'aria-multiline': 'true',
                 'aria-label': 'Review markdown editor',
-                'aria-labelledby': labelId,
-                'aria-describedby': hintId,
             },
         },
         onUpdate: ({ editor: currentEditor }) => {
@@ -76,9 +79,5 @@ export function ReviewEditor({ value, readOnly, saveState, onChange, onFocusRead
             onFocusReady?.(null);
         };
     }, [editor, onFocusReady]);
-    return (_jsxs("section", { className: "panel stack-md", children: [_jsxs("div", { className: "section-heading", children: [_jsx("h2", { children: "Review content" }), _jsx("span", { children: saveState === 'saving'
-                            ? 'Saving…'
-                            : saveState === 'error'
-                                ? 'Save failed'
-                                : 'Saved' })] }), _jsxs("label", { className: "field", children: [_jsx("span", { id: labelId, className: "field__label", children: "Review markdown editor" }), _jsx("div", { id: hintId, className: "editor-hint", children: "No toolbar. Use markdown syntax and keyboard shortcuts inline." }), _jsx("div", { className: `editor-surface${readOnly ? ' editor-surface--readonly' : ''}`, children: _jsx(EditorContent, { editor: editor }) })] })] }));
+    return (_jsxs("div", { className: "card", children: [_jsxs("div", { className: "card__header", children: [_jsx("span", { id: labelId, className: "card__title", children: "Content" }), _jsx(SaveIndicator, { state: saveState })] }), _jsx("div", { className: "card__body", style: { padding: 0 }, children: _jsx("div", { className: `editor-surface${readOnly ? ' editor-surface--readonly' : ''}`, style: { border: 'none', borderRadius: 0 }, children: _jsx(EditorContent, { editor: editor }) }) })] }));
 }

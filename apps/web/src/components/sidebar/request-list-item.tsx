@@ -1,6 +1,5 @@
-import clsx from 'clsx';
-
 import type { RequestListItem } from '@clawreview/shared';
+import clsx from 'clsx';
 
 import { formatRelativeTime } from '../../lib/format.js';
 import { Badge } from '../common/badge.js';
@@ -39,7 +38,9 @@ export function RequestListItemRow({
     >
       <div className="request-row__title-line">
         <span className="request-row__title">{request.title}</span>
-        <Badge tone={reviewTone(request.reviewState)}>{request.reviewState}</Badge>
+        <Badge tone={reviewTone(request.reviewState)} dot>
+          {request.reviewState}
+        </Badge>
       </div>
       <div className="request-row__meta">
         <span>{request.sourceAgentLabel || request.sourceAgentId}</span>

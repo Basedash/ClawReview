@@ -7,9 +7,12 @@ async function requestJson(input, init) {
         },
         ...init,
     });
-    const payload = (await response.json().catch(() => null));
+    const payload = (await response
+        .json()
+        .catch(() => null));
     if (!response.ok) {
-        const message = payload?.error?.message ?? `Request failed with status ${response.status}`;
+        const message = payload?.error?.message ??
+            `Request failed with status ${response.status}`;
         throw new Error(message);
     }
     return payload;

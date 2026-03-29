@@ -1,4 +1,7 @@
-import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
+import { jsx as _jsx } from "react/jsx-runtime";
 export function RequestSummary({ request }) {
-    return (_jsxs("section", { className: "panel", children: [_jsx("h3", { className: "panel-title", children: "Summary" }), _jsx("p", { className: "summary-text", children: request.summary || 'No summary was provided for this review request.' })] }));
+    if (!request.summary) {
+        return null;
+    }
+    return (_jsx("div", { className: "card", children: _jsx("div", { className: "card__body", children: _jsx("p", { className: "summary-text", children: request.summary }) }) }));
 }
