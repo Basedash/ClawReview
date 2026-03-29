@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Navigate, Route, Routes, useNavigate, useParams } from 'react-router-dom';
 
 import type {
   RequestDetail,
@@ -23,9 +24,15 @@ import './styles/globals.css';
 
 type SaveState = 'idle' | 'saving' | 'saved' | 'error';
 
-export default function App() {
+function requestPath(requestId: string) {
+  return `/requests/${encodeURIComponent(requestId)}`;
+}
+
+function ReviewWorkspace() {
+  const navigate = useNavigate();
+  const { requestId } = useParams<{ requestId?: string }>();
+  const selectedId = requestId ?? null;
   const [requests, setRequests] = useState<RequestListItem[]>([]);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedRequest, setSelectedRequest] = useState<RequestDetail | null>(null);
   const [statusFilter, setStatusFilter] =
     useState<RequestFilterStatus>('open');
@@ -41,8 +48,21 @@ export default function App() {
   const { theme, toggle: toggleTheme } = useTheme();
   const searchRef = useRef<HTMLInputElement | null>(null);
   const editorFocusRef = useRef<(() => void) | null>(null);
+  const selectedIdRef = useRef<string | null>(selectedId);
 
   const shortcutEntries = useMemo(() => getShortcutEntries(), []);
+  const selectRequest = useCallback(
+    (requestId: string | null, options?: { replace?: boolean }) => {
+      void navigate(requestId ? requestPath(requestId) : '/', {
+        replace: options?.replace ?? false,
+      });
+    },
+    [navigate],
+  );
+
+  useEffect(() => {
+    selectedIdRef.current = selectedId;
+  }, [selectedId]);
 
   useEffect(() => {
     let mounted = true;
@@ -57,13 +77,17 @@ export default function App() {
       }
 
       setRequests(response.requests);
-      setSelectedId((current) => current ?? response.requests[0]?.id ?? null);
+
+      const nextSelectedId = selectedIdRef.current;
+      if (!nextSelectedId && response.requests[0]?.id) {
+        selectRequest(response.requests[0].id, { replace: true });
+      }
     });
 
     return () => {
       mounted = false;
     };
-  }, [statusFilter, search, reloadKey]);
+  }, [statusFilter, search, reloadKey, selectRequest]);
 
   useEffect(() => {
     if (!selectedId) {
@@ -72,13 +96,21 @@ export default function App() {
     }
 
     let mounted = true;
-    void fetchRequestDetail(selectedId).then((response) => {
-      if (!mounted) {
-        return;
-      }
+    void fetchRequestDetail(selectedId)
+      .then((response) => {
+        if (!mounted) {
+          return;
+        }
 
-      setSelectedRequest(response.request);
-    });
+        setSelectedRequest(response.request);
+      })
+      .catch(() => {
+        if (!mounted) {
+          return;
+        }
+
+        setSelectedRequest(null);
+      });
 
     return () => {
       mounted = false;
@@ -97,29 +129,39 @@ export default function App() {
       switch (event.key) {
         case 'j':
           event.preventDefault();
-          setSelectedId((current) => {
-            if (!requests.length) {
-              return null;
-            }
-            const index = requests.findIndex((request) => request.id === current);
-            return (
-              requests[Math.min(index + 1, requests.length - 1)]?.id ??
-              requests[0]?.id ??
-              null
-            );
-          });
+          selectRequest(
+            (() => {
+              if (!requests.length) {
+                return null;
+              }
+
+              const index = requests.findIndex(
+                (request) => request.id === selectedIdRef.current,
+              );
+              return (
+                requests[Math.min(index + 1, requests.length - 1)]?.id ??
+                requests[0]?.id ??
+                null
+              );
+            })(),
+          );
           break;
         case 'k':
           event.preventDefault();
-          setSelectedId((current) => {
-            if (!requests.length) {
-              return null;
-            }
-            const index = requests.findIndex((request) => request.id === current);
-            return (
-              requests[Math.max(index - 1, 0)]?.id ?? requests[0]?.id ?? null
-            );
-          });
+          selectRequest(
+            (() => {
+              if (!requests.length) {
+                return null;
+              }
+
+              const index = requests.findIndex(
+                (request) => request.id === selectedIdRef.current,
+              );
+              return (
+                requests[Math.max(index - 1, 0)]?.id ?? requests[0]?.id ?? null
+              );
+            })(),
+          );
           break;
         case '/':
           event.preventDefault();
@@ -135,29 +177,39 @@ export default function App() {
           break;
         case '[':
           event.preventDefault();
-          setSelectedId((current) => {
-            if (!requests.length) {
-              return null;
-            }
-            const index = requests.findIndex((request) => request.id === current);
-            return (
-              requests[Math.max(index - 1, 0)]?.id ?? requests[0]?.id ?? null
-            );
-          });
+          selectRequest(
+            (() => {
+              if (!requests.length) {
+                return null;
+              }
+
+              const index = requests.findIndex(
+                (request) => request.id === selectedIdRef.current,
+              );
+              return (
+                requests[Math.max(index - 1, 0)]?.id ?? requests[0]?.id ?? null
+              );
+            })(),
+          );
           break;
         case ']':
           event.preventDefault();
-          setSelectedId((current) => {
-            if (!requests.length) {
-              return null;
-            }
-            const index = requests.findIndex((request) => request.id === current);
-            return (
-              requests[Math.min(index + 1, requests.length - 1)]?.id ??
-              requests[0]?.id ??
-              null
-            );
-          });
+          selectRequest(
+            (() => {
+              if (!requests.length) {
+                return null;
+              }
+
+              const index = requests.findIndex(
+                (request) => request.id === selectedIdRef.current,
+              );
+              return (
+                requests[Math.min(index + 1, requests.length - 1)]?.id ??
+                requests[0]?.id ??
+                null
+              );
+            })(),
+          );
           break;
         default:
           if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
@@ -170,7 +222,7 @@ export default function App() {
     return () => {
       window.removeEventListener('keydown', onKeyDown);
     };
-  }, [requests]);
+  }, [requests, selectRequest]);
 
   async function handleContentChange(nextMarkdown: string) {
     if (!selectedRequest) {
@@ -246,7 +298,7 @@ export default function App() {
       onThemeToggle={toggleTheme}
       onSearchChange={setSearch}
       onStatusFilterChange={setStatusFilter}
-      onSelectRequest={setSelectedId}
+      onSelectRequest={(requestId) => selectRequest(requestId)}
       onCloseShortcuts={() => setIsShortcutsOpen(false)}
       onContentChange={handleContentChange}
       onReviewDraftChange={setReviewDraft}
@@ -256,5 +308,15 @@ export default function App() {
         editorFocusRef.current = focus;
       }}
     />
+  );
+}
+
+export default function App() {
+  return (
+    <Routes>
+      <Route path="/" element={<ReviewWorkspace />} />
+      <Route path="/requests/:requestId" element={<ReviewWorkspace />} />
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
   );
 }

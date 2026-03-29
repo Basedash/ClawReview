@@ -1,14 +1,20 @@
-import { jsx as _jsx } from "react/jsx-runtime";
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Navigate, Route, Routes, useNavigate, useParams } from 'react-router-dom';
 import { LayoutShell } from './components/layout-shell.js';
 import { useTheme } from './lib/use-theme.js';
 import { fetchRequestDetail, fetchRequests, retryResume, submitReview, updateRequestContent, } from './lib/api.js';
 import { getShortcutEntries, isEditableTarget } from './lib/shortcuts.js';
 import './styles/tokens.css';
 import './styles/globals.css';
-export default function App() {
+function requestPath(requestId) {
+    return `/requests/${encodeURIComponent(requestId)}`;
+}
+function ReviewWorkspace() {
+    const navigate = useNavigate();
+    const { requestId } = useParams();
+    const selectedId = requestId ?? null;
     const [requests, setRequests] = useState([]);
-    const [selectedId, setSelectedId] = useState(null);
     const [selectedRequest, setSelectedRequest] = useState(null);
     const [statusFilter, setStatusFilter] = useState('open');
     const [search, setSearch] = useState('');
@@ -23,7 +29,16 @@ export default function App() {
     const { theme, toggle: toggleTheme } = useTheme();
     const searchRef = useRef(null);
     const editorFocusRef = useRef(null);
+    const selectedIdRef = useRef(selectedId);
     const shortcutEntries = useMemo(() => getShortcutEntries(), []);
+    const selectRequest = useCallback((requestId, options) => {
+        void navigate(requestId ? requestPath(requestId) : '/', {
+            replace: options?.replace ?? false,
+        });
+    }, [navigate]);
+    useEffect(() => {
+        selectedIdRef.current = selectedId;
+    }, [selectedId]);
     useEffect(() => {
         let mounted = true;
         void fetchRequests({
@@ -35,23 +50,33 @@ export default function App() {
                 return;
             }
             setRequests(response.requests);
-            setSelectedId((current) => current ?? response.requests[0]?.id ?? null);
+            const nextSelectedId = selectedIdRef.current;
+            if (!nextSelectedId && response.requests[0]?.id) {
+                selectRequest(response.requests[0].id, { replace: true });
+            }
         });
         return () => {
             mounted = false;
         };
-    }, [statusFilter, search, reloadKey]);
+    }, [statusFilter, search, reloadKey, selectRequest]);
     useEffect(() => {
         if (!selectedId) {
             setSelectedRequest(null);
             return;
         }
         let mounted = true;
-        void fetchRequestDetail(selectedId).then((response) => {
+        void fetchRequestDetail(selectedId)
+            .then((response) => {
             if (!mounted) {
                 return;
             }
             setSelectedRequest(response.request);
+        })
+            .catch(() => {
+            if (!mounted) {
+                return;
+            }
+            setSelectedRequest(null);
         });
         return () => {
             mounted = false;
@@ -68,25 +93,25 @@ export default function App() {
             switch (event.key) {
                 case 'j':
                     event.preventDefault();
-                    setSelectedId((current) => {
+                    selectRequest((() => {
                         if (!requests.length) {
                             return null;
                         }
-                        const index = requests.findIndex((request) => request.id === current);
+                        const index = requests.findIndex((request) => request.id === selectedIdRef.current);
                         return (requests[Math.min(index + 1, requests.length - 1)]?.id ??
                             requests[0]?.id ??
                             null);
-                    });
+                    })());
                     break;
                 case 'k':
                     event.preventDefault();
-                    setSelectedId((current) => {
+                    selectRequest((() => {
                         if (!requests.length) {
                             return null;
                         }
-                        const index = requests.findIndex((request) => request.id === current);
+                        const index = requests.findIndex((request) => request.id === selectedIdRef.current);
                         return (requests[Math.max(index - 1, 0)]?.id ?? requests[0]?.id ?? null);
-                    });
+                    })());
                     break;
                 case '/':
                     event.preventDefault();
@@ -102,25 +127,25 @@ export default function App() {
                     break;
                 case '[':
                     event.preventDefault();
-                    setSelectedId((current) => {
+                    selectRequest((() => {
                         if (!requests.length) {
                             return null;
                         }
-                        const index = requests.findIndex((request) => request.id === current);
+                        const index = requests.findIndex((request) => request.id === selectedIdRef.current);
                         return (requests[Math.max(index - 1, 0)]?.id ?? requests[0]?.id ?? null);
-                    });
+                    })());
                     break;
                 case ']':
                     event.preventDefault();
-                    setSelectedId((current) => {
+                    selectRequest((() => {
                         if (!requests.length) {
                             return null;
                         }
-                        const index = requests.findIndex((request) => request.id === current);
+                        const index = requests.findIndex((request) => request.id === selectedIdRef.current);
                         return (requests[Math.min(index + 1, requests.length - 1)]?.id ??
                             requests[0]?.id ??
                             null);
-                    });
+                    })());
                     break;
                 default:
                     if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
@@ -132,7 +157,7 @@ export default function App() {
         return () => {
             window.removeEventListener('keydown', onKeyDown);
         };
-    }, [requests]);
+    }, [requests, selectRequest]);
     async function handleContentChange(nextMarkdown) {
         if (!selectedRequest) {
             return;
@@ -181,7 +206,10 @@ export default function App() {
             : current);
         setReloadKey((current) => current + 1);
     }
-    return (_jsx(LayoutShell, { requests: requests, selectedId: selectedId, selectedRequest: selectedRequest, statusFilter: statusFilter, search: search, searchRef: searchRef, saveState: saveState, isReviewSubmitting: isReviewSubmitting, isShortcutsOpen: isShortcutsOpen, shortcutEntries: shortcutEntries, reviewDraft: reviewDraft, theme: theme, onThemeToggle: toggleTheme, onSearchChange: setSearch, onStatusFilterChange: setStatusFilter, onSelectRequest: setSelectedId, onCloseShortcuts: () => setIsShortcutsOpen(false), onContentChange: handleContentChange, onReviewDraftChange: setReviewDraft, onReviewSubmit: handleReviewSubmit, onRetryResume: handleRetryResume, registerEditorFocus: (focus) => {
+    return (_jsx(LayoutShell, { requests: requests, selectedId: selectedId, selectedRequest: selectedRequest, statusFilter: statusFilter, search: search, searchRef: searchRef, saveState: saveState, isReviewSubmitting: isReviewSubmitting, isShortcutsOpen: isShortcutsOpen, shortcutEntries: shortcutEntries, reviewDraft: reviewDraft, theme: theme, onThemeToggle: toggleTheme, onSearchChange: setSearch, onStatusFilterChange: setStatusFilter, onSelectRequest: (requestId) => selectRequest(requestId), onCloseShortcuts: () => setIsShortcutsOpen(false), onContentChange: handleContentChange, onReviewDraftChange: setReviewDraft, onReviewSubmit: handleReviewSubmit, onRetryResume: handleRetryResume, registerEditorFocus: (focus) => {
             editorFocusRef.current = focus;
         } }));
+}
+export default function App() {
+    return (_jsxs(Routes, { children: [_jsx(Route, { path: "/", element: _jsx(ReviewWorkspace, {}) }), _jsx(Route, { path: "/requests/:requestId", element: _jsx(ReviewWorkspace, {}) }), _jsx(Route, { path: "*", element: _jsx(Navigate, { to: "/", replace: true }) })] }));
 }
