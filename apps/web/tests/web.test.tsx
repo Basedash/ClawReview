@@ -141,6 +141,12 @@ describe('web app', () => {
     expect(within(detailPane).getByText('CR-0002')).toBeInTheDocument();
     expect(await screen.findByText('Summary')).toBeInTheDocument();
     expect(await screen.findByText('Activity')).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /review database migration/i }),
+    ).toHaveClass('selected');
+    expect(
+      screen.getByRole('button', { name: /review release draft/i }),
+    ).not.toHaveClass('selected');
     expect(screen.getByTestId('location-display')).toHaveTextContent(
       '/requests/req-2',
     );
@@ -162,6 +168,12 @@ describe('web app', () => {
     fireEvent.click(screen.getByRole('button', { name: /review database migration/i }));
 
     expect(await screen.findByText('Validate migration sequencing')).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /review database migration/i }),
+    ).toHaveClass('selected');
+    expect(
+      screen.getByRole('button', { name: /review release draft/i }),
+    ).not.toHaveClass('selected');
     expect(screen.getByTestId('location-display')).toHaveTextContent(
       '/requests/req-2',
     );
