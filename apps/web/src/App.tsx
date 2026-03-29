@@ -9,6 +9,7 @@ import type {
 } from '@clawreview/shared';
 
 import { LayoutShell, type ReviewDraftState } from './components/layout-shell.js';
+import { useTheme } from './lib/use-theme.js';
 import {
   fetchRequestDetail,
   fetchRequests,
@@ -37,6 +38,7 @@ export default function App() {
     action: 'approve',
     comment: '',
   });
+  const { theme, toggle: toggleTheme } = useTheme();
   const searchRef = useRef<HTMLInputElement | null>(null);
   const editorFocusRef = useRef<(() => void) | null>(null);
 
@@ -240,6 +242,8 @@ export default function App() {
       isShortcutsOpen={isShortcutsOpen}
       shortcutEntries={shortcutEntries}
       reviewDraft={reviewDraft}
+      theme={theme}
+      onThemeToggle={toggleTheme}
       onSearchChange={setSearch}
       onStatusFilterChange={setStatusFilter}
       onSelectRequest={setSelectedId}

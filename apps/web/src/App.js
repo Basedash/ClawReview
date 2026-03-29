@@ -1,6 +1,7 @@
 import { jsx as _jsx } from "react/jsx-runtime";
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { LayoutShell } from './components/layout-shell.js';
+import { useTheme } from './lib/use-theme.js';
 import { fetchRequestDetail, fetchRequests, retryResume, submitReview, updateRequestContent, } from './lib/api.js';
 import { getShortcutEntries, isEditableTarget } from './lib/shortcuts.js';
 import './styles/tokens.css';
@@ -19,6 +20,7 @@ export default function App() {
         action: 'approve',
         comment: '',
     });
+    const { theme, toggle: toggleTheme } = useTheme();
     const searchRef = useRef(null);
     const editorFocusRef = useRef(null);
     const shortcutEntries = useMemo(() => getShortcutEntries(), []);
@@ -179,7 +181,7 @@ export default function App() {
             : current);
         setReloadKey((current) => current + 1);
     }
-    return (_jsx(LayoutShell, { requests: requests, selectedId: selectedId, selectedRequest: selectedRequest, statusFilter: statusFilter, search: search, searchRef: searchRef, saveState: saveState, isReviewSubmitting: isReviewSubmitting, isShortcutsOpen: isShortcutsOpen, shortcutEntries: shortcutEntries, reviewDraft: reviewDraft, onSearchChange: setSearch, onStatusFilterChange: setStatusFilter, onSelectRequest: setSelectedId, onCloseShortcuts: () => setIsShortcutsOpen(false), onContentChange: handleContentChange, onReviewDraftChange: setReviewDraft, onReviewSubmit: handleReviewSubmit, onRetryResume: handleRetryResume, registerEditorFocus: (focus) => {
+    return (_jsx(LayoutShell, { requests: requests, selectedId: selectedId, selectedRequest: selectedRequest, statusFilter: statusFilter, search: search, searchRef: searchRef, saveState: saveState, isReviewSubmitting: isReviewSubmitting, isShortcutsOpen: isShortcutsOpen, shortcutEntries: shortcutEntries, reviewDraft: reviewDraft, theme: theme, onThemeToggle: toggleTheme, onSearchChange: setSearch, onStatusFilterChange: setStatusFilter, onSelectRequest: setSelectedId, onCloseShortcuts: () => setIsShortcutsOpen(false), onContentChange: handleContentChange, onReviewDraftChange: setReviewDraft, onReviewSubmit: handleReviewSubmit, onRetryResume: handleRetryResume, registerEditorFocus: (focus) => {
             editorFocusRef.current = focus;
         } }));
 }

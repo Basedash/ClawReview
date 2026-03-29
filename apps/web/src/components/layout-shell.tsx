@@ -8,6 +8,7 @@ import type { RefObject } from 'react';
 import type { ShortcutDefinition } from '../lib/shortcuts.js';
 import { EmptyState } from './common/empty-state.js';
 import { KeyboardShortcutsDialog } from './common/keyboard-shortcuts-dialog.js';
+import { ThemeToggle } from './common/theme-toggle.js';
 import { ActivityLog } from './detail/activity-log.js';
 import { RequestHeader } from './detail/request-header.js';
 import { RequestSummary } from './detail/request-summary.js';
@@ -35,6 +36,8 @@ export interface LayoutShellProps {
   isShortcutsOpen: boolean;
   shortcutEntries: ShortcutDefinition[];
   reviewDraft: ReviewDraftState;
+  theme: 'light' | 'dark';
+  onThemeToggle: () => void;
   onSearchChange: (value: string) => void;
   onStatusFilterChange: (status: RequestFilterStatus) => void;
   onSelectRequest: (requestId: string) => void;
@@ -58,6 +61,8 @@ export function LayoutShell({
   isShortcutsOpen,
   shortcutEntries,
   reviewDraft,
+  theme,
+  onThemeToggle,
   onSearchChange,
   onStatusFilterChange,
   onSelectRequest,
@@ -107,6 +112,10 @@ export function LayoutShell({
               description="Open review requests will appear here once an agent submits them."
             />
           )}
+
+          <div className="sidebar__footer">
+            <ThemeToggle theme={theme} onToggle={onThemeToggle} />
+          </div>
         </aside>
 
         <main className="detail-pane">
