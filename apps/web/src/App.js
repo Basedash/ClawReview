@@ -6,7 +6,7 @@ import { fetchRequestDetail, fetchRequests, retryResume, submitReview, updateReq
 import { getShortcutEntries, isEditableTarget } from './lib/shortcuts.js';
 import './styles/tokens.css';
 import './styles/globals.css';
-const PENDING_RESUME_REFRESH_MS = 1500;
+const PENDING_RESUME_POLL_MS = 2_000;
 export default function App() {
     const [requests, setRequests] = useState([]);
     const [selectedId, setSelectedId] = useState(null);
@@ -62,14 +62,13 @@ export default function App() {
         if (!selectedRequest || selectedRequest.resumeStatus !== 'pending') {
             return;
         }
+        let cancelled = false;
         const intervalId = window.setInterval(() => {
             void fetchRequestDetail(selectedRequest.id).then((response) => {
-                setSelectedRequest((current) => {
-                    if (!current || current.id !== response.request.id) {
-                        return current;
-                    }
-                    return response.request;
-                });
+                if (cancelled) {
+                    return;
+                }
+                setSelectedRequest(response.request);
                 setRequests((current) => current.map((request) => request.id === response.request.id
                     ? {
                         ...request,
@@ -81,10 +80,10 @@ export default function App() {
                         closedAt: response.request.closedAt,
                     }
                     : request));
-            }).catch(() => {
             });
-        }, PENDING_RESUME_REFRESH_MS);
+        }, PENDING_RESUME_POLL_MS);
         return () => {
+            cancelled = true;
             window.clearInterval(intervalId);
         };
     }, [selectedRequest]);

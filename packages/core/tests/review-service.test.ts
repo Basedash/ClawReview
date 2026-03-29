@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi, type Mock } from 'vitest';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 
@@ -13,7 +13,8 @@ vi.mock('node:child_process', () => ({
   spawn: vi.fn(),
 }));
 
-const { spawn: spawnMock } = await import('node:child_process');
+const { spawn } = await import('node:child_process');
+const spawnMock = spawn as unknown as Mock;
 
 describe('review service', () => {
   afterEach(() => {
