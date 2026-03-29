@@ -42,13 +42,13 @@ const listPayload = {
         },
     ],
 };
-function makeDetailPayload(index) {
+function createDetailPayload(index, markdown = `# ${listPayload.requests[index].title}`) {
     const request = listPayload.requests[index];
     return {
         request: {
             ...request,
-            originalContentMarkdown: `# ${request.title}`,
-            editedContentMarkdown: `# ${request.title}`,
+            originalContentMarkdown: markdown,
+            editedContentMarkdown: markdown,
             sourceSessionKey: 'main',
             sourcePreviousResponseId: null,
             sourceGatewayBaseUrl: null,
@@ -73,16 +73,20 @@ function makeDetailPayload(index) {
     };
 }
 const detailPayloadById = {
-    'req-1': makeDetailPayload(0),
-    'req-2': makeDetailPayload(1),
+    'req-1': createDetailPayload(0, '# Draft'),
+    'req-2': createDetailPayload(1),
 };
 function LocationDisplay() {
     const location = useLocation();
     return _jsx("div", { "data-testid": "location-display", children: location.pathname });
 }
 describe('web app', () => {
+    let detailPayload = detailPayloadById['req-1'];
     beforeEach(() => {
-        const fetchMock = vi.fn(async (input) => {
+        detailPayload = detailPayloadById['req-1'];
+    });
+    beforeEach(() => {
+        const fetchMock = vi.fn(async (input, init) => {
             const url = String(input);
             if (url.includes('/api/requests?')) {
                 return new Response(JSON.stringify(listPayload), {
@@ -92,11 +96,27 @@ describe('web app', () => {
             }
             const detailMatch = url.match(/\/api\/requests\/(req-\d+)$/);
             if (detailMatch) {
-                const payload = detailPayloadById[detailMatch[1]];
+                const payload = detailMatch[1] === 'req-1'
+                    ? detailPayload
+                    : detailPayloadById[detailMatch[1]];
                 if (!payload) {
                     throw new Error(`Unexpected request id: ${detailMatch[1]}`);
                 }
                 return new Response(JSON.stringify(payload), {
+                    status: 200,
+                    headers: { 'Content-Type': 'application/json' },
+                });
+            }
+            if (url.endsWith('/api/requests/req-1/content') && init?.method === 'PATCH') {
+                const payload = JSON.parse(String(init.body ?? '{}'));
+                return new Response(JSON.stringify({
+                    request: {
+                        ...detailPayload.request,
+                        editedContentMarkdown: payload.editedContentMarkdown,
+                        isEdited: payload.editedContentMarkdown !==
+                            detailPayload.request.originalContentMarkdown,
+                    },
+                }), {
                     status: 200,
                     headers: { 'Content-Type': 'application/json' },
                 });
@@ -114,8 +134,10 @@ describe('web app', () => {
             name: /review markdown editor/i,
         })).toBeInTheDocument();
         expect(within(detailPane).getByText('CR-0002')).toBeInTheDocument();
-        expect(await screen.findByText('Summary')).toBeInTheDocument();
+        expect(await screen.findByText('Review')).toBeInTheDocument();
         expect(await screen.findByText('Activity')).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /review database migration/i })).toHaveClass('selected');
+        expect(screen.getByRole('button', { name: /review release draft/i })).not.toHaveClass('selected');
         expect(screen.getByTestId('location-display')).toHaveTextContent('/requests/req-2');
     });
     it('updates the URL when selecting a different request', async () => {
@@ -124,6 +146,16 @@ describe('web app', () => {
         expect(screen.getByTestId('location-display')).toHaveTextContent('/requests/req-1');
         fireEvent.click(screen.getByRole('button', { name: /review database migration/i }));
         expect(await screen.findByText('Validate migration sequencing')).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /review database migration/i })).toHaveClass('selected');
+        expect(screen.getByRole('button', { name: /review release draft/i })).not.toHaveClass('selected');
         expect(screen.getByTestId('location-display')).toHaveTextContent('/requests/req-2');
+    });
+    it('renders markdown content as rich text inline', async () => {
+        detailPayload = createDetailPayload(0, '# Draft\n\n- first item\n- second item\n\n`inline code`');
+        render(_jsx(MemoryRouter, { initialEntries: ['/'], children: _jsx(App, {}) }));
+        expect(await screen.findByRole('heading', { name: 'Draft' })).toBeInTheDocument();
+        expect(await screen.findByText('first item')).toBeInTheDocument();
+        expect(await screen.findByText('second item')).toBeInTheDocument();
+        expect(await screen.findByText('inline code')).toBeInTheDocument();
     });
 });

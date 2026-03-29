@@ -44,14 +44,14 @@ const listPayload = {
   ],
 };
 
-function makeDetailPayload(index: number) {
+function createDetailPayload(index: number, markdown = `# ${listPayload.requests[index].title}`) {
   const request = listPayload.requests[index];
 
   return {
     request: {
       ...request,
-      originalContentMarkdown: `# ${request.title}`,
-      editedContentMarkdown: `# ${request.title}`,
+      originalContentMarkdown: markdown,
+      editedContentMarkdown: markdown,
       sourceSessionKey: 'main',
       sourcePreviousResponseId: null,
       sourceGatewayBaseUrl: null,
@@ -77,8 +77,8 @@ function makeDetailPayload(index: number) {
 }
 
 const detailPayloadById = {
-  'req-1': makeDetailPayload(0),
-  'req-2': makeDetailPayload(1),
+  'req-1': createDetailPayload(0, '# Draft'),
+  'req-2': createDetailPayload(1),
 };
 
 function LocationDisplay() {
@@ -88,8 +88,14 @@ function LocationDisplay() {
 }
 
 describe('web app', () => {
+  let detailPayload = detailPayloadById['req-1'];
+
   beforeEach(() => {
-    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+    detailPayload = detailPayloadById['req-1'];
+  });
+
+  beforeEach(() => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
 
       if (url.includes('/api/requests?')) {
@@ -102,7 +108,9 @@ describe('web app', () => {
       const detailMatch = url.match(/\/api\/requests\/(req-\d+)$/);
       if (detailMatch) {
         const payload =
-          detailPayloadById[detailMatch[1] as keyof typeof detailPayloadById];
+          detailMatch[1] === 'req-1'
+            ? detailPayload
+            : detailPayloadById[detailMatch[1] as keyof typeof detailPayloadById];
 
         if (!payload) {
           throw new Error(`Unexpected request id: ${detailMatch[1]}`);
@@ -112,6 +120,26 @@ describe('web app', () => {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
         });
+      }
+
+      if (url.endsWith('/api/requests/req-1/content') && init?.method === 'PATCH') {
+        const payload = JSON.parse(String(init.body ?? '{}'));
+
+        return new Response(
+          JSON.stringify({
+            request: {
+              ...detailPayload.request,
+              editedContentMarkdown: payload.editedContentMarkdown,
+              isEdited:
+                payload.editedContentMarkdown !==
+                detailPayload.request.originalContentMarkdown,
+            },
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        );
       }
 
       throw new Error(`Unexpected fetch call: ${url}`);
@@ -139,7 +167,7 @@ describe('web app', () => {
       }),
     ).toBeInTheDocument();
     expect(within(detailPane).getByText('CR-0002')).toBeInTheDocument();
-    expect(await screen.findByText('Summary')).toBeInTheDocument();
+    expect(await screen.findByText('Review')).toBeInTheDocument();
     expect(await screen.findByText('Activity')).toBeInTheDocument();
     expect(
       screen.getByRole('button', { name: /review database migration/i }),
@@ -177,5 +205,23 @@ describe('web app', () => {
     expect(screen.getByTestId('location-display')).toHaveTextContent(
       '/requests/req-2',
     );
+  });
+
+  it('renders markdown content as rich text inline', async () => {
+    detailPayload = createDetailPayload(
+      0,
+      '# Draft\n\n- first item\n- second item\n\n`inline code`',
+    );
+
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByRole('heading', { name: 'Draft' })).toBeInTheDocument();
+    expect(await screen.findByText('first item')).toBeInTheDocument();
+    expect(await screen.findByText('second item')).toBeInTheDocument();
+    expect(await screen.findByText('inline code')).toBeInTheDocument();
   });
 });

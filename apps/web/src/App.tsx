@@ -23,6 +23,7 @@ import './styles/tokens.css';
 import './styles/globals.css';
 
 type SaveState = 'idle' | 'saving' | 'saved' | 'error';
+const SAVE_DEBOUNCE_MS = 400;
 
 function requestPath(requestId: string) {
   return `/requests/${encodeURIComponent(requestId)}`;
@@ -49,6 +50,9 @@ function ReviewWorkspace() {
   const searchRef = useRef<HTMLInputElement | null>(null);
   const editorFocusRef = useRef<(() => void) | null>(null);
   const selectedIdRef = useRef<string | null>(selectedId);
+  const saveTimeoutRef = useRef<number | null>(null);
+  const syncedMarkdownRef = useRef('');
+  const saveTokenRef = useRef(0);
 
   const shortcutEntries = useMemo(() => getShortcutEntries(), []);
   const selectRequest = useCallback(
@@ -90,6 +94,14 @@ function ReviewWorkspace() {
   }, [statusFilter, search, reloadKey, selectRequest]);
 
   useEffect(() => {
+    saveTokenRef.current += 1;
+    syncedMarkdownRef.current = '';
+    setSaveState('idle');
+    if (saveTimeoutRef.current !== null) {
+      window.clearTimeout(saveTimeoutRef.current);
+      saveTimeoutRef.current = null;
+    }
+
     if (!selectedId) {
       setSelectedRequest(null);
       return;
@@ -101,8 +113,9 @@ function ReviewWorkspace() {
         if (!mounted) {
           return;
         }
-
         setSelectedRequest(response.request);
+        syncedMarkdownRef.current = response.request.editedContentMarkdown;
+        setSaveState('saved');
       })
       .catch(() => {
         if (!mounted) {
@@ -116,6 +129,70 @@ function ReviewWorkspace() {
       mounted = false;
     };
   }, [selectedId, reloadKey]);
+
+  useEffect(() => {
+    if (!selectedRequest) {
+      return;
+    }
+
+    if (saveTimeoutRef.current !== null) {
+      window.clearTimeout(saveTimeoutRef.current);
+      saveTimeoutRef.current = null;
+    }
+
+    const nextMarkdown = selectedRequest.editedContentMarkdown;
+    if (nextMarkdown === syncedMarkdownRef.current) {
+      return;
+    }
+
+    setSaveState('saving');
+    const requestId = selectedRequest.id;
+    const saveToken = saveTokenRef.current + 1;
+    saveTokenRef.current = saveToken;
+
+    saveTimeoutRef.current = window.setTimeout(async () => {
+      try {
+        const updated = await updateRequestContent(requestId, {
+          editedContentMarkdown: nextMarkdown,
+        } satisfies UpdateRequestContentInput);
+
+        if (saveTokenRef.current !== saveToken) {
+          return;
+        }
+
+        syncedMarkdownRef.current = updated.request.editedContentMarkdown;
+        setSelectedRequest((current) =>
+          current?.id === requestId ? updated.request : current,
+        );
+        setRequests((current) =>
+          current.map((request) =>
+            request.id === requestId
+              ? {
+                  ...request,
+                  updatedAt: updated.request.updatedAt,
+                  isEdited: updated.request.isEdited,
+                  status: updated.request.status,
+                  reviewState: updated.request.reviewState,
+                  resumeStatus: updated.request.resumeStatus,
+                }
+              : request,
+          ),
+        );
+        setSaveState('saved');
+      } catch {
+        if (saveTokenRef.current === saveToken) {
+          setSaveState('error');
+        }
+      }
+    }, SAVE_DEBOUNCE_MS);
+
+    return () => {
+      if (saveTimeoutRef.current !== null) {
+        window.clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = null;
+      }
+    };
+  }, [selectedRequest?.editedContentMarkdown, selectedRequest?.id]);
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
@@ -224,22 +301,16 @@ function ReviewWorkspace() {
     };
   }, [requests, selectRequest]);
 
-  async function handleContentChange(nextMarkdown: string) {
-    if (!selectedRequest) {
-      return;
-    }
-
-    setSaveState('saving');
-    try {
-      const updated = await updateRequestContent(selectedRequest.id, {
-        editedContentMarkdown: nextMarkdown,
-      } satisfies UpdateRequestContentInput);
-      setSelectedRequest(updated.request);
-      setSaveState('saved');
-      setReloadKey((current) => current + 1);
-    } catch {
-      setSaveState('error');
-    }
+  function handleContentChange(nextMarkdown: string) {
+    setSelectedRequest((current) =>
+      current
+        ? {
+            ...current,
+            editedContentMarkdown: nextMarkdown,
+            isEdited: nextMarkdown !== current.originalContentMarkdown,
+          }
+        : current,
+    );
   }
 
   async function handleReviewSubmit(input: {
