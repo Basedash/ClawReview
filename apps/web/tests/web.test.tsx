@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
+import { render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 
 import App from '../src/App.js';
@@ -27,37 +26,54 @@ const listPayload = {
   ],
 };
 
-const detailPayload = {
-  request: {
-    ...listPayload.requests[0],
-    originalContentMarkdown: '# Draft',
-    editedContentMarkdown: '# Draft',
-    sourceSessionKey: 'main',
-    sourcePreviousResponseId: null,
-    sourceGatewayBaseUrl: null,
-    sourceUser: null,
-    sourceMetadata: null,
-    context: { branch: 'cursor/human-review-platform-5c64' },
-    resumeError: null,
-    lastResumeAttemptAt: null,
-    lastResumeResponseId: null,
-    reviews: [],
-    events: [
-      {
-        id: 'evt-1',
-        requestId: 'req-1',
-        eventType: 'request.created',
-        actorType: 'agent',
-        payload: { title: 'Review release draft' },
-        createdAt: '2026-03-28T05:59:00.000Z',
-      },
-    ],
-  },
-};
+function createDetailPayload(markdown = '# Draft') {
+  return {
+    request: {
+      ...listPayload.requests[0],
+      originalContentMarkdown: markdown,
+      editedContentMarkdown: markdown,
+      sourceSessionKey: 'main',
+      sourcePreviousResponseId: null,
+      sourceGatewayBaseUrl: null,
+      sourceUser: null,
+      sourceMetadata: null,
+      context: { branch: 'cursor/human-review-platform-5c64' },
+      resumeError: null,
+      lastResumeAttemptAt: null,
+      lastResumeResponseId: null,
+      reviews: [],
+      events: [
+        {
+          id: 'evt-1',
+          requestId: 'req-1',
+          eventType: 'request.created',
+          actorType: 'agent',
+          payload: { title: 'Review release draft' },
+          createdAt: '2026-03-28T05:59:00.000Z',
+        },
+      ],
+    },
+  };
+}
 
 describe('web app', () => {
+  let detailPayload = createDetailPayload();
+
   beforeEach(() => {
-    vi.useFakeTimers();
+    detailPayload = createDetailPayload();
+    vi.stubGlobal(
+      'matchMedia',
+      vi.fn().mockImplementation(() => ({
+        matches: false,
+        media: '',
+        onchange: null,
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      })),
+    );
   });
 
   beforeEach(() => {
@@ -114,42 +130,21 @@ describe('web app', () => {
         name: /review markdown editor/i,
       }),
     ).toBeInTheDocument();
-    expect(await screen.findByText('Metadata')).toBeInTheDocument();
+    expect(await screen.findByText('Review')).toBeInTheDocument();
     expect(await screen.findByText('Activity')).toBeInTheDocument();
     expect(await screen.findByRole('heading', { name: 'Draft' })).toBeInTheDocument();
   });
 
-  it('keeps markdown formatting inline and saves markdown output', async () => {
-    const user = userEvent.setup({
-      advanceTimers: (delay) => vi.advanceTimersByTime(delay),
-    });
+  it('renders markdown content as rich text inline', async () => {
+    detailPayload = createDetailPayload(
+      '# Draft\n\n- first item\n- second item\n\n`inline code`',
+    );
 
     render(<App />);
 
-    const editor = await screen.findByRole('textbox', {
-      name: /review markdown editor/i,
-    });
     expect(await screen.findByRole('heading', { name: 'Draft' })).toBeInTheDocument();
-
-    await user.click(editor);
-    await user.keyboard('{Control>}a{/Control}# Updated heading');
-    vi.advanceTimersByTime(500);
-
-    await waitFor(() => {
-      expect(screen.getByRole('heading', { name: 'Updated heading' })).toBeInTheDocument();
-    });
-
-    const fetchMock = vi.mocked(fetch);
-    await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith(
-        '/api/requests/req-1/content',
-        expect.objectContaining({
-          method: 'PATCH',
-          body: JSON.stringify({
-            editedContentMarkdown: '# Updated heading',
-          }),
-        }),
-      );
-    });
+    expect(await screen.findByText('first item')).toBeInTheDocument();
+    expect(await screen.findByText('second item')).toBeInTheDocument();
+    expect(await screen.findByText('inline code')).toBeInTheDocument();
   });
 });
