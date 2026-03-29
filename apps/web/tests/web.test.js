@@ -1,6 +1,7 @@
 import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/react';
+import { waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import App from '../src/App';
@@ -76,6 +77,16 @@ const detailPayloadById = {
     'req-1': createDetailPayload(0, '# Draft'),
     'req-2': createDetailPayload(1),
 };
+function createDeferred() {
+    let resolve;
+    const promise = new Promise((resolver) => {
+        resolve = resolver;
+    });
+    return {
+        promise,
+        resolve,
+    };
+}
 function LocationDisplay() {
     const location = useLocation();
     return _jsx("div", { "data-testid": "location-display", children: location.pathname });
@@ -157,5 +168,91 @@ describe('web app', () => {
         expect(await screen.findByText('first item')).toBeInTheDocument();
         expect(await screen.findByText('second item')).toBeInTheDocument();
         expect(await screen.findByText('inline code')).toBeInTheDocument();
+    });
+    it('optimistically closes the request immediately after submit', async () => {
+        const submitResponse = createDeferred();
+        const fetchMock = vi.fn((input, init) => {
+            const url = String(input);
+            const method = init?.method ?? 'GET';
+            if (method === 'GET' && url.includes('/api/requests?')) {
+                return Promise.resolve(new Response(JSON.stringify(listPayload), {
+                    status: 200,
+                    headers: { 'Content-Type': 'application/json' },
+                }));
+            }
+            if (method === 'GET' && url.endsWith('/api/requests/req-1')) {
+                return Promise.resolve(new Response(JSON.stringify(detailPayload), {
+                    status: 200,
+                    headers: { 'Content-Type': 'application/json' },
+                }));
+            }
+            if (method === 'POST' && url.endsWith('/api/requests/req-1/review')) {
+                return submitResponse.promise;
+            }
+            throw new Error(`Unexpected fetch call: ${method} ${url}`);
+        });
+        vi.stubGlobal('fetch', fetchMock);
+        render(_jsx(MemoryRouter, { initialEntries: ['/'], children: _jsx(App, {}) }));
+        expect(await screen.findByRole('heading', { name: 'Review release draft' })).toBeInTheDocument();
+        fireEvent.change(await screen.findByRole('textbox', { name: /reviewer comment/i }), {
+            target: { value: 'Ship it' },
+        });
+        const approveButtons = await screen.findAllByRole('button', {
+            name: /approve request/i,
+        });
+        fireEvent.click(approveButtons.at(-1));
+        await waitFor(() => {
+            expect(screen.getByText('closed')).toBeInTheDocument();
+            expect(screen.getByText('resume pending')).toBeInTheDocument();
+            expect(screen.getByText('review.submitted')).toBeInTheDocument();
+            expect(screen.getByText('resume.dispatched')).toBeInTheDocument();
+        });
+        submitResponse.resolve(new Response(JSON.stringify({
+            request: {
+                ...detailPayload.request,
+                status: 'closed',
+                reviewState: 'approved',
+                resumeStatus: 'pending',
+                closedAt: '2026-03-28T06:05:00.000Z',
+                updatedAt: '2026-03-28T06:05:00.000Z',
+                lastResumeAttemptAt: '2026-03-28T06:05:00.000Z',
+                reviews: [
+                    {
+                        id: 'rev-1',
+                        requestId: 'req-1',
+                        action: 'approve',
+                        commentText: 'Ship it',
+                        resumePayloadJson: null,
+                        submittedAt: '2026-03-28T06:05:00.000Z',
+                    },
+                ],
+                events: [
+                    ...detailPayload.request.events,
+                    {
+                        id: 'evt-2',
+                        requestId: 'req-1',
+                        eventType: 'review.submitted',
+                        actorType: 'human',
+                        payload: { action: 'approve', comment: 'Ship it' },
+                        createdAt: '2026-03-28T06:05:00.000Z',
+                    },
+                    {
+                        id: 'evt-3',
+                        requestId: 'req-1',
+                        eventType: 'resume.dispatched',
+                        actorType: 'system',
+                        payload: null,
+                        createdAt: '2026-03-28T06:05:00.000Z',
+                    },
+                ],
+            },
+        }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+        }));
+        await waitFor(() => {
+            expect(screen.getByText('closed')).toBeInTheDocument();
+            expect(screen.getByText('review.submitted')).toBeInTheDocument();
+        });
     });
 });

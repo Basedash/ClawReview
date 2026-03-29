@@ -3,8 +3,10 @@ import { Navigate, Route, Routes, useNavigate, useParams } from 'react-router-do
 
 import type {
   RequestDetail,
+  RequestEvent,
   RequestFilterStatus,
   RequestListItem,
+  ReviewRecord,
   SubmitReviewInput,
   UpdateRequestContentInput,
 } from '@clawreview/shared';
@@ -23,7 +25,148 @@ import './styles/tokens.css';
 import './styles/globals.css';
 
 type SaveState = 'idle' | 'saving' | 'saved' | 'error';
+
 const SAVE_DEBOUNCE_MS = 400;
+const REVIEW_POLL_INTERVAL_MS = 2_000;
+
+function toReviewState(
+  action: ReviewDraftState['action'],
+): RequestDetail['reviewState'] {
+  switch (action) {
+    case 'approve':
+      return 'approved';
+    case 'comment':
+      return 'commented';
+    case 'reject':
+      return 'rejected';
+  }
+}
+
+function toListItem(request: RequestDetail): RequestListItem {
+  return {
+    id: request.id,
+    publicId: request.publicId,
+    title: request.title,
+    summary: request.summary,
+    status: request.status,
+    reviewState: request.reviewState,
+    resumeStatus: request.resumeStatus,
+    isEdited: request.isEdited,
+    sourceHarness: request.sourceHarness,
+    sourceAgentId: request.sourceAgentId,
+    sourceAgentLabel: request.sourceAgentLabel,
+    sourceWorkflowLabel: request.sourceWorkflowLabel,
+    updatedAt: request.updatedAt,
+    createdAt: request.createdAt,
+    closedAt: request.closedAt,
+  };
+}
+
+function reconcileRequestList(
+  requests: RequestListItem[],
+  statusFilter: RequestFilterStatus,
+  request: RequestDetail,
+): RequestListItem[] {
+  const nextItem = toListItem(request);
+  const shouldInclude =
+    statusFilter === 'all' || statusFilter === nextItem.status;
+  const remaining = requests.filter((item) => item.id !== nextItem.id);
+
+  if (!shouldInclude) {
+    return remaining;
+  }
+
+  return [nextItem, ...remaining];
+}
+
+function createOptimisticEvent(
+  requestId: string,
+  eventType: RequestEvent['eventType'],
+  actorType: RequestEvent['actorType'],
+  createdAt: string,
+  payload: RequestEvent['payload'],
+): RequestEvent {
+  return {
+    id: `optimistic-${eventType}-${createdAt}`,
+    requestId,
+    eventType,
+    actorType,
+    payload,
+    createdAt,
+  };
+}
+
+function buildOptimisticReviewRequest(
+  request: RequestDetail,
+  draft: ReviewDraftState,
+): RequestDetail {
+  const submittedAt = new Date().toISOString();
+  const commentText = draft.comment.trim().length > 0 ? draft.comment : null;
+  const optimisticReview: ReviewRecord = {
+    id: `optimistic-review-${submittedAt}`,
+    requestId: request.id,
+    action: draft.action,
+    commentText,
+    resumePayloadJson: null,
+    submittedAt,
+  };
+
+  return {
+    ...request,
+    status: 'closed',
+    reviewState: toReviewState(draft.action),
+    resumeStatus: 'pending',
+    resumeError: null,
+    closedAt: submittedAt,
+    updatedAt: submittedAt,
+    lastResumeAttemptAt: submittedAt,
+    lastResumeResponseId: null,
+    reviews: [optimisticReview, ...request.reviews],
+    events: [
+      ...request.events,
+      createOptimisticEvent(
+        request.id,
+        'review.submitted',
+        'human',
+        submittedAt,
+        {
+          action: draft.action,
+          comment: draft.comment,
+        },
+      ),
+      createOptimisticEvent(
+        request.id,
+        'resume.dispatched',
+        'system',
+        submittedAt,
+        null,
+      ),
+    ],
+  };
+}
+
+function buildOptimisticRetryRequest(request: RequestDetail): RequestDetail {
+  const attemptedAt = new Date().toISOString();
+
+  return {
+    ...request,
+    resumeStatus: 'pending',
+    resumeError: null,
+    updatedAt: attemptedAt,
+    lastResumeAttemptAt: attemptedAt,
+    lastResumeResponseId: null,
+    events: [
+      ...request.events,
+      createOptimisticEvent(
+        request.id,
+        'resume.dispatched',
+        'system',
+        attemptedAt,
+        null,
+      ),
+    ],
+  };
+}
 
 function requestPath(requestId: string) {
   return `/requests/${encodeURIComponent(requestId)}`;
@@ -41,7 +184,6 @@ function ReviewWorkspace() {
   const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
   const [saveState, setSaveState] = useState<SaveState>('idle');
   const [isReviewSubmitting, setIsReviewSubmitting] = useState(false);
-  const [reloadKey, setReloadKey] = useState(0);
   const [reviewDraft, setReviewDraft] = useState<ReviewDraftState>({
     action: 'approve',
     comment: '',
@@ -91,7 +233,7 @@ function ReviewWorkspace() {
     return () => {
       mounted = false;
     };
-  }, [statusFilter, search, reloadKey, selectRequest]);
+  }, [statusFilter, search, selectRequest]);
 
   useEffect(() => {
     saveTokenRef.current += 1;
@@ -128,7 +270,61 @@ function ReviewWorkspace() {
     return () => {
       mounted = false;
     };
-  }, [selectedId, reloadKey]);
+  }, [selectedId]);
+
+  useEffect(() => {
+    if (
+      !selectedRequest ||
+      selectedRequest.resumeStatus !== 'pending' ||
+      isReviewSubmitting
+    ) {
+      return;
+    }
+
+    const pendingRequestId = selectedRequest.id;
+    let cancelled = false;
+
+    async function refreshPendingRequest() {
+      try {
+        const [detailResponse, listResponse] = await Promise.all([
+          fetchRequestDetail(pendingRequestId),
+          fetchRequests({
+            status: statusFilter,
+            search,
+            limit: 100,
+          }),
+        ]);
+
+        if (cancelled) {
+          return;
+        }
+
+        setSelectedRequest((current) =>
+          current?.id === detailResponse.request.id
+            ? detailResponse.request
+            : current,
+        );
+        setRequests(listResponse.requests);
+      } catch {
+        // Keep polling on the next interval if the background refresh fails.
+      }
+    }
+
+    void refreshPendingRequest();
+    const intervalId = window.setInterval(() => {
+      void refreshPendingRequest();
+    }, REVIEW_POLL_INTERVAL_MS);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [
+    isReviewSubmitting,
+    search,
+    selectedRequest,
+    statusFilter,
+  ]);
 
   useEffect(() => {
     if (!selectedRequest) {
@@ -138,6 +334,10 @@ function ReviewWorkspace() {
     if (saveTimeoutRef.current !== null) {
       window.clearTimeout(saveTimeoutRef.current);
       saveTimeoutRef.current = null;
+    }
+
+    if (selectedRequest.status === 'closed') {
+      return;
     }
 
     const nextMarkdown = selectedRequest.editedContentMarkdown;
@@ -192,7 +392,11 @@ function ReviewWorkspace() {
         saveTimeoutRef.current = null;
       }
     };
-  }, [selectedRequest?.editedContentMarkdown, selectedRequest?.id]);
+  }, [
+    selectedRequest?.editedContentMarkdown,
+    selectedRequest?.id,
+    selectedRequest?.status,
+  ]);
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
@@ -321,15 +525,42 @@ function ReviewWorkspace() {
       return;
     }
 
+    const previousRequest = selectedRequest;
+    const previousDraft = reviewDraft;
+    const optimisticRequest = buildOptimisticReviewRequest(
+      selectedRequest,
+      input,
+    );
+
+    saveTokenRef.current += 1;
+    if (saveTimeoutRef.current !== null) {
+      window.clearTimeout(saveTimeoutRef.current);
+      saveTimeoutRef.current = null;
+    }
+    setSaveState('saved');
+    setSelectedRequest(optimisticRequest);
+    setRequests((current) =>
+      reconcileRequestList(current, statusFilter, optimisticRequest),
+    );
+    setReviewDraft({ action: 'approve', comment: '' });
     setIsReviewSubmitting(true);
     try {
       const response = await submitReview(selectedRequest.id, {
         action: input.action,
         comment: input.comment,
+        editedContentMarkdown: selectedRequest.editedContentMarkdown,
       } satisfies SubmitReviewInput);
       setSelectedRequest(response.request);
-      setReviewDraft({ action: 'approve', comment: '' });
-      setReloadKey((current) => current + 1);
+      setRequests((current) =>
+        reconcileRequestList(current, statusFilter, response.request),
+      );
+    } catch (error) {
+      setSelectedRequest(previousRequest);
+      setRequests((current) =>
+        reconcileRequestList(current, statusFilter, previousRequest),
+      );
+      setReviewDraft(previousDraft);
+      throw error;
     } finally {
       setIsReviewSubmitting(false);
     }
@@ -340,16 +571,45 @@ function ReviewWorkspace() {
       return;
     }
 
-    const response = await retryResume(selectedRequest.id);
-    setSelectedRequest((current: RequestDetail | null) =>
-      current
-        ? {
-            ...current,
-            resumeStatus: response.resumeStatus,
-          }
-        : current,
+    const previousRequest = selectedRequest;
+    const optimisticRequest = buildOptimisticRetryRequest(selectedRequest);
+
+    setSelectedRequest(optimisticRequest);
+    setRequests((current) =>
+      reconcileRequestList(current, statusFilter, optimisticRequest),
     );
-    setReloadKey((current) => current + 1);
+    setIsReviewSubmitting(true);
+
+    try {
+      const response = await retryResume(selectedRequest.id);
+      setSelectedRequest((current: RequestDetail | null) =>
+        current
+          ? {
+              ...current,
+              resumeStatus: response.resumeStatus,
+              resumeError: null,
+            }
+          : current,
+      );
+      setRequests((current) =>
+        current.map((request) =>
+          request.id === response.requestId
+            ? {
+                ...request,
+                resumeStatus: response.resumeStatus,
+              }
+            : request,
+        ),
+      );
+    } catch (error) {
+      setSelectedRequest(previousRequest);
+      setRequests((current) =>
+        reconcileRequestList(current, statusFilter, previousRequest),
+      );
+      throw error;
+    } finally {
+      setIsReviewSubmitting(false);
+    }
   }
 
   return (

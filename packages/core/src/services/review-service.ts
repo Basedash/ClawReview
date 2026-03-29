@@ -144,7 +144,10 @@ export class ReviewService {
       createdAt: submittedAt,
     });
 
-    return this.dispatchResume(requestId, review.id);
+    this.markResumeDispatched(requestId, submittedAt);
+    this.startResumeInBackground(requestId, review.id, submittedAt);
+
+    return this.getRequestDetailOrThrow(requestId);
   }
 
   public async retryResume(requestId: string): Promise<RequestDetail> {
@@ -164,31 +167,18 @@ export class ReviewService {
       );
     }
 
-    return this.dispatchResume(requestId, latestReview.id);
+    const attemptedAt = nowIso();
+    this.markResumeDispatched(requestId, attemptedAt);
+    this.startResumeInBackground(requestId, latestReview.id, attemptedAt);
+
+    return this.getRequestDetailOrThrow(requestId);
   }
 
-  private async dispatchResume(
-    requestId: string,
-    reviewId: string,
-  ): Promise<RequestDetail> {
-    const request = this.requestRepository.getDetailById(requestId);
-    const review = this.reviewRepository.findById(reviewId);
+  private getRequestDetailOrThrow(requestId: string): RequestDetail {
+    return toRequestDetail(this.requestRepository.getDetailById(requestId));
+  }
 
-    if (!request || !review) {
-      throw new DomainError('NOT_FOUND', 'Request or review could not be loaded.', 404);
-    }
-
-    const attemptedAt = nowIso();
-
-    console.log('[review-service] Dispatching resume for request:', {
-      requestId,
-      reviewId,
-      publicId: request.publicId,
-      agentId: request.sourceAgentId,
-      sessionKey: request.sourceSessionKey,
-      harness: request.sourceHarness,
-    });
-
+  private markResumeDispatched(requestId: string, attemptedAt: string): void {
     this.requestRepository.updateResumeStatus({
       id: requestId,
       resumeStatus: 'pending',
@@ -205,6 +195,45 @@ export class ReviewService {
       actorType: 'system',
       payloadJson: null,
       createdAt: attemptedAt,
+    });
+  }
+
+  private startResumeInBackground(
+    requestId: string,
+    reviewId: string,
+    attemptedAt: string,
+  ): void {
+    setTimeout(() => {
+      void this.performResume(requestId, reviewId, attemptedAt).catch((error) => {
+        const message =
+          error instanceof Error ? error.message : 'Resume failed unexpectedly.';
+        console.error('[review-service] Unexpected background resume failure:', {
+          requestId,
+          error: message,
+        });
+      });
+    }, 0);
+  }
+
+  private async performResume(
+    requestId: string,
+    reviewId: string,
+    attemptedAt: string,
+  ): Promise<void> {
+    const request = this.requestRepository.getDetailById(requestId);
+    const review = this.reviewRepository.findById(reviewId);
+
+    if (!request || !review) {
+      throw new DomainError('NOT_FOUND', 'Request or review could not be loaded.', 404);
+    }
+
+    console.log('[review-service] Dispatching resume for request:', {
+      requestId,
+      reviewId,
+      publicId: request.publicId,
+      agentId: request.sourceAgentId,
+      sessionKey: request.sourceSessionKey,
+      harness: request.sourceHarness,
     });
 
     try {
@@ -278,7 +307,5 @@ export class ReviewService {
         createdAt: failedAt,
       });
     }
-
-    return toRequestDetail(this.requestRepository.getDetailById(requestId));
   }
 }
