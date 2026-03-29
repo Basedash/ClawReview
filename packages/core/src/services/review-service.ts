@@ -180,6 +180,15 @@ export class ReviewService {
 
     const attemptedAt = nowIso();
 
+    console.log('[review-service] Dispatching resume for request:', {
+      requestId,
+      reviewId,
+      publicId: request.publicId,
+      agentId: request.sourceAgentId,
+      sessionKey: request.sourceSessionKey,
+      harness: request.sourceHarness,
+    });
+
     this.requestRepository.updateResumeStatus({
       id: requestId,
       resumeStatus: 'pending',
@@ -212,6 +221,11 @@ export class ReviewService {
       );
       const succeededAt = nowIso();
 
+      console.log('[review-service] Resume succeeded:', {
+        requestId,
+        responseId: result.responseId,
+      });
+
       this.requestRepository.updateResumeStatus({
         id: requestId,
         resumeStatus: 'succeeded',
@@ -238,6 +252,10 @@ export class ReviewService {
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Resume failed.';
+      console.error('[review-service] Resume failed:', {
+        requestId,
+        error: message,
+      });
       const failedAt = nowIso();
 
       this.requestRepository.updateResumeStatus({

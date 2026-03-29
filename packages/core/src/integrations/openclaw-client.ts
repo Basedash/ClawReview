@@ -1,4 +1,4 @@
-import WebSocket from 'ws';
+import { execFile } from 'node:child_process';
 
 export interface OpenClawClientOptions {
   baseUrl: string;
@@ -19,129 +19,99 @@ export interface OpenClawResumeResponse {
   rawResponse: unknown;
 }
 
+/**
+ * Detect the channel type from the session key pattern.
+ * OpenClaw session keys follow patterns like:
+ *   "channel:C0AQ1DVHGSC" (Slack)
+ *   "+15555550123" (WhatsApp/Signal/SMS)
+ *   "telegram:12345" (Telegram)
+ *   "discord:12345" (Discord)
+ */
+function detectChannel(sessionKey: string): string | null {
+  // Slack channel IDs start with C, D, or G followed by alphanumeric
+  if (/^channel:[CDG][A-Z0-9]+$/.test(sessionKey)) return 'slack';
+  if (sessionKey.startsWith('telegram:')) return 'telegram';
+  if (sessionKey.startsWith('discord:')) return 'discord';
+  if (sessionKey.startsWith('signal:')) return 'signal';
+  if (/^\+\d+$/.test(sessionKey)) return 'whatsapp';
+  return null;
+}
+
 export class OpenClawClient {
   public constructor(
-    private readonly options: OpenClawClientOptions,
+    _options: OpenClawClientOptions,
     _fetchFn?: typeof fetch,
   ) {}
 
   public async resumeSession(
     request: OpenClawResumeRequest,
   ): Promise<OpenClawResumeResponse> {
-    const baseUrl = request.gatewayBaseUrl ?? this.options.baseUrl;
-    const wsUrl = baseUrl.replace(/^http/, 'ws');
-
     return new Promise<OpenClawResumeResponse>((resolve, reject) => {
-      const ws = new WebSocket(wsUrl);
-      let connectId: string | null = null;
-      let chatSendId: string | null = null;
-      let connected = false;
+      const channel = detectChannel(request.sessionKey);
 
-      const timeout = setTimeout(() => {
-        ws.close();
-        reject(new Error('OpenClaw WebSocket resume timed out after 30s'));
-      }, 30_000);
+      const args = [
+        'agent',
+        '--agent', request.agentId,
+        '--session-id', request.sessionKey,
+        '--message', request.message,
+        '--deliver',
+        '--json',
+        '--timeout', '120',
+      ];
 
-      function sendReq(method: string, params: Record<string, unknown>): string {
-        const id = `cr-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-        const frame = JSON.stringify({ type: 'req', id, method, params });
-        ws.send(frame);
-        return id;
+      // Add channel routing so the reply goes back to the originating channel
+      if (channel) {
+        args.push('--channel', channel);
+        args.push('--reply-channel', channel);
+        args.push('--reply-to', request.sessionKey);
       }
 
-      ws.on('open', () => {
-        // Wait for challenge event before sending connect
+      const openclawBin = process.env.OPENCLAW_BIN ?? '/home/openclaw/.npm-global/bin/openclaw';
+
+      console.log('[openclaw-client] Resuming session via CLI:', {
+        agentId: request.agentId,
+        sessionKey: request.sessionKey,
+        channel: channel ?? 'default',
+        messageLength: request.message.length,
+        binary: openclawBin,
+        args: args.filter(a => a !== request.message),
       });
 
-      ws.on('message', (data: WebSocket.Data) => {
-        let msg: Record<string, unknown>;
+      execFile(openclawBin, args, {
+        timeout: 130_000,
+        env: { ...process.env },
+      }, (error, stdout, stderr) => {
+        if (stderr) {
+          console.log('[openclaw-client] CLI stderr:', stderr.slice(0, 500));
+        }
+
+        if (error) {
+          console.error('[openclaw-client] CLI error:', error.message);
+          reject(new Error(`OpenClaw CLI resume failed: ${error.message}${stderr ? `\nstderr: ${stderr.slice(0, 500)}` : ''}`));
+          return;
+        }
+
+        console.log('[openclaw-client] CLI stdout:', stdout.slice(0, 500));
+
+        let parsed: unknown = null;
         try {
-          msg = JSON.parse(data.toString()) as Record<string, unknown>;
+          parsed = JSON.parse(stdout) as unknown;
         } catch {
-          return;
+          parsed = stdout;
         }
 
-        // Handle connect challenge
-        if (
-          msg.type === 'event' &&
-          msg.event === 'connect.challenge'
-        ) {
-          connectId = sendReq('connect', {
-            minProtocol: 3,
-            maxProtocol: 3,
-            client: {
-              id: 'clawreview',
-              version: '0.1.0',
-              platform: 'linux',
-              mode: 'operator',
-            },
-            role: 'operator',
-            scopes: ['operator.read', 'operator.write'],
-            caps: [],
-            commands: [],
-            permissions: {},
-            auth: { token: this.options.gatewayToken },
-            userAgent: 'clawreview/0.1.0',
-          });
-          return;
-        }
+        const responseId =
+          typeof parsed === 'object' &&
+          parsed !== null &&
+          'id' in parsed &&
+          typeof (parsed as Record<string, unknown>).id === 'string'
+            ? (parsed as Record<string, unknown>).id as string
+            : undefined;
 
-        // Handle responses
-        if (msg.type === 'res') {
-          const resId = msg.id as string;
-
-          if (resId === connectId) {
-            if (msg.ok) {
-              connected = true;
-              // Now send chat.send to inject the message into the session
-              chatSendId = sendReq('chat.send', {
-                sessionKey: request.sessionKey,
-                text: request.message,
-              });
-            } else {
-              clearTimeout(timeout);
-              ws.close();
-              reject(
-                new Error(
-                  `OpenClaw connect failed: ${JSON.stringify(msg.payload ?? msg.error ?? msg)}`,
-                ),
-              );
-            }
-            return;
-          }
-
-          if (resId === chatSendId) {
-            clearTimeout(timeout);
-            ws.close();
-
-            if (msg.ok) {
-              const payload = msg.payload as Record<string, unknown> | undefined;
-              resolve({
-                responseId: payload?.runId as string | undefined,
-                rawResponse: msg,
-              });
-            } else {
-              reject(
-                new Error(
-                  `OpenClaw chat.send failed: ${JSON.stringify(msg.payload ?? msg.error ?? msg)}`,
-                ),
-              );
-            }
-            return;
-          }
-        }
-      });
-
-      ws.on('error', (err: Error) => {
-        clearTimeout(timeout);
-        reject(new Error(`OpenClaw WebSocket error: ${err.message}`));
-      });
-
-      ws.on('close', () => {
-        clearTimeout(timeout);
-        if (!connected) {
-          reject(new Error('OpenClaw WebSocket closed before connect completed'));
-        }
+        resolve({
+          responseId,
+          rawResponse: parsed,
+        });
       });
     });
   }
