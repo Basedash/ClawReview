@@ -9,7 +9,6 @@ import type { ShortcutDefinition } from '../lib/shortcuts.js';
 import { EmptyState } from './common/empty-state.js';
 import { KeyboardShortcutsDialog } from './common/keyboard-shortcuts-dialog.js';
 import { ActivityLog } from './detail/activity-log.js';
-import { MetadataPanel } from './detail/metadata-panel.js';
 import { RequestHeader } from './detail/request-header.js';
 import { RequestSummary } from './detail/request-summary.js';
 import { ResumeStatusBanner } from './detail/resume-status-banner.js';
@@ -125,32 +124,27 @@ export function LayoutShell({
               />
               <RequestSummary request={selectedRequest} />
 
-              <div className="detail-pane__grid">
-                <section className="card detail-pane__primary">
-                  <ReviewEditor
-                    value={selectedRequest.editedContentMarkdown}
-                    readOnly={selectedRequest.status === 'closed'}
-                    saveState={saveState}
-                    onChange={onContentChange}
-                    onFocusReady={registerEditorFocus}
-                  />
-                  <ReviewActions
-                    draft={reviewDraft}
-                    disabled={
-                      saveState === 'saving' ||
-                      selectedRequest.status === 'closed' ||
-                      isReviewSubmitting
-                    }
-                    onChange={onReviewDraftChange}
-                    onSubmit={onReviewSubmit}
-                  />
-                </section>
+              <section className="card detail-pane__primary">
+                <ReviewEditor
+                  value={selectedRequest.editedContentMarkdown}
+                  readOnly={selectedRequest.status === 'closed'}
+                  saveState={saveState}
+                  onChange={onContentChange}
+                  onFocusReady={registerEditorFocus}
+                />
+                <ReviewActions
+                  draft={reviewDraft}
+                  disabled={
+                    saveState === 'saving' ||
+                    selectedRequest.status === 'closed' ||
+                    isReviewSubmitting
+                  }
+                  onChange={onReviewDraftChange}
+                  onSubmit={onReviewSubmit}
+                />
+              </section>
 
-                <aside className="detail-pane__secondary">
-                  <MetadataPanel request={selectedRequest} />
-                  <ActivityLog events={selectedRequest.events} />
-                </aside>
-              </div>
+              <ActivityLog events={selectedRequest.events} />
             </div>
           ) : (
             <div className="detail-pane__empty">
