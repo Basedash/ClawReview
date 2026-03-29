@@ -6,6 +6,7 @@ import { fetchRequestDetail, fetchRequests, retryResume, submitReview, updateReq
 import { getShortcutEntries, isEditableTarget } from './lib/shortcuts.js';
 import './styles/tokens.css';
 import './styles/globals.css';
+const SAVE_DEBOUNCE_MS = 400;
 export default function App() {
     const [requests, setRequests] = useState([]);
     const [selectedId, setSelectedId] = useState(null);
@@ -23,6 +24,9 @@ export default function App() {
     const { theme, toggle: toggleTheme } = useTheme();
     const searchRef = useRef(null);
     const editorFocusRef = useRef(null);
+    const saveTimeoutRef = useRef(null);
+    const syncedMarkdownRef = useRef('');
+    const saveTokenRef = useRef(0);
     const shortcutEntries = useMemo(() => getShortcutEntries(), []);
     useEffect(() => {
         let mounted = true;
@@ -42,6 +46,13 @@ export default function App() {
         };
     }, [statusFilter, search, reloadKey]);
     useEffect(() => {
+        saveTokenRef.current += 1;
+        syncedMarkdownRef.current = '';
+        setSaveState('idle');
+        if (saveTimeoutRef.current !== null) {
+            window.clearTimeout(saveTimeoutRef.current);
+            saveTimeoutRef.current = null;
+        }
         if (!selectedId) {
             setSelectedRequest(null);
             return;
@@ -52,11 +63,64 @@ export default function App() {
                 return;
             }
             setSelectedRequest(response.request);
+            syncedMarkdownRef.current = response.request.editedContentMarkdown;
+            setSaveState('saved');
         });
         return () => {
             mounted = false;
         };
     }, [selectedId, reloadKey]);
+    useEffect(() => {
+        if (!selectedRequest) {
+            return;
+        }
+        if (saveTimeoutRef.current !== null) {
+            window.clearTimeout(saveTimeoutRef.current);
+            saveTimeoutRef.current = null;
+        }
+        const nextMarkdown = selectedRequest.editedContentMarkdown;
+        if (nextMarkdown === syncedMarkdownRef.current) {
+            return;
+        }
+        setSaveState('saving');
+        const requestId = selectedRequest.id;
+        const saveToken = saveTokenRef.current + 1;
+        saveTokenRef.current = saveToken;
+        saveTimeoutRef.current = window.setTimeout(async () => {
+            try {
+                const updated = await updateRequestContent(requestId, {
+                    editedContentMarkdown: nextMarkdown,
+                });
+                if (saveTokenRef.current !== saveToken) {
+                    return;
+                }
+                syncedMarkdownRef.current = updated.request.editedContentMarkdown;
+                setSelectedRequest((current) => current?.id === requestId ? updated.request : current);
+                setRequests((current) => current.map((request) => request.id === requestId
+                    ? {
+                        ...request,
+                        updatedAt: updated.request.updatedAt,
+                        isEdited: updated.request.isEdited,
+                        status: updated.request.status,
+                        reviewState: updated.request.reviewState,
+                        resumeStatus: updated.request.resumeStatus,
+                    }
+                    : request));
+                setSaveState('saved');
+            }
+            catch {
+                if (saveTokenRef.current === saveToken) {
+                    setSaveState('error');
+                }
+            }
+        }, SAVE_DEBOUNCE_MS);
+        return () => {
+            if (saveTimeoutRef.current !== null) {
+                window.clearTimeout(saveTimeoutRef.current);
+                saveTimeoutRef.current = null;
+            }
+        };
+    }, [selectedRequest?.editedContentMarkdown, selectedRequest?.id]);
     useEffect(() => {
         function onKeyDown(event) {
             if (isEditableTarget(event.target)) {
@@ -133,22 +197,14 @@ export default function App() {
             window.removeEventListener('keydown', onKeyDown);
         };
     }, [requests]);
-    async function handleContentChange(nextMarkdown) {
-        if (!selectedRequest) {
-            return;
-        }
-        setSaveState('saving');
-        try {
-            const updated = await updateRequestContent(selectedRequest.id, {
+    function handleContentChange(nextMarkdown) {
+        setSelectedRequest((current) => current
+            ? {
+                ...current,
                 editedContentMarkdown: nextMarkdown,
-            });
-            setSelectedRequest(updated.request);
-            setSaveState('saved');
-            setReloadKey((current) => current + 1);
-        }
-        catch {
-            setSaveState('error');
-        }
+                isEdited: nextMarkdown !== current.originalContentMarkdown,
+            }
+            : current);
     }
     async function handleReviewSubmit(input) {
         if (!selectedRequest) {

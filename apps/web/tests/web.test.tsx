@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import '@testing-library/jest-dom/vitest';
 
 import App from '../src/App.js';
@@ -56,7 +57,11 @@ const detailPayload = {
 
 describe('web app', () => {
   beforeEach(() => {
-    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+    vi.useFakeTimers();
+  });
+
+  beforeEach(() => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
 
       if (url.includes('/api/requests?')) {
@@ -71,6 +76,26 @@ describe('web app', () => {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
         });
+      }
+
+      if (url.endsWith('/api/requests/req-1/content') && init?.method === 'PATCH') {
+        const payload = JSON.parse(String(init.body ?? '{}'));
+
+        return new Response(
+          JSON.stringify({
+            request: {
+              ...detailPayload.request,
+              editedContentMarkdown: payload.editedContentMarkdown,
+              isEdited:
+                payload.editedContentMarkdown !==
+                detailPayload.request.originalContentMarkdown,
+            },
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        );
       }
 
       throw new Error(`Unexpected fetch call: ${url}`);
@@ -91,5 +116,40 @@ describe('web app', () => {
     ).toBeInTheDocument();
     expect(await screen.findByText('Metadata')).toBeInTheDocument();
     expect(await screen.findByText('Activity')).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Draft' })).toBeInTheDocument();
+  });
+
+  it('keeps markdown formatting inline and saves markdown output', async () => {
+    const user = userEvent.setup({
+      advanceTimers: (delay) => vi.advanceTimersByTime(delay),
+    });
+
+    render(<App />);
+
+    const editor = await screen.findByRole('textbox', {
+      name: /review markdown editor/i,
+    });
+    expect(await screen.findByRole('heading', { name: 'Draft' })).toBeInTheDocument();
+
+    await user.click(editor);
+    await user.keyboard('{Control>}a{/Control}# Updated heading');
+    vi.advanceTimersByTime(500);
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'Updated heading' })).toBeInTheDocument();
+    });
+
+    const fetchMock = vi.mocked(fetch);
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/requests/req-1/content',
+        expect.objectContaining({
+          method: 'PATCH',
+          body: JSON.stringify({
+            editedContentMarkdown: '# Updated heading',
+          }),
+        }),
+      );
+    });
   });
 });
