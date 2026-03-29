@@ -14,12 +14,9 @@ interface RequestFiltersProps {
   onChange: (value: RequestFilterStatus) => void;
 }
 
-export function RequestFilters({
-  value,
-  onChange,
-}: RequestFiltersProps) {
+export function RequestFilters({ value, onChange }: RequestFiltersProps) {
   return (
-    <div className="filter-row" aria-label="Request filters">
+    <fieldset className="filter-row" aria-label="Request filters">
       {FILTERS.map((filter) => (
         <button
           key={filter.value}
@@ -30,6 +27,6 @@ export function RequestFilters({
           {filter.label}
         </button>
       ))}
-    </div>
+    </fieldset>
   );
 }

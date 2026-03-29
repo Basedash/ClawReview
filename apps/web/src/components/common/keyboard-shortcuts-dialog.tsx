@@ -21,12 +21,36 @@ export function KeyboardShortcutsDialog({
       role="dialog"
       aria-modal="true"
       aria-label="Keyboard shortcuts"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') onClose();
+      }}
     >
       <div className="modal">
-        <div className="modal-header">
+        <div className="modal__header">
           <h2>Keyboard shortcuts</h2>
-          <button className="ghost-button" type="button" onClick={onClose}>
-            Close
+          <button
+            className="modal__close"
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+          >
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 16 16"
+              fill="none"
+              aria-hidden="true"
+            >
+              <path
+                d="M4 4l8 8M12 4l-8 8"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+              />
+            </svg>
           </button>
         </div>
         <div className="shortcut-list">

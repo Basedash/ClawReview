@@ -11,16 +11,19 @@ export type BadgeTone =
 
 export interface BadgeProps extends PropsWithChildren {
   tone?: BadgeTone;
+  dot?: boolean;
 }
 
-export function Badge({ children, tone = 'default' }: BadgeProps) {
+export function Badge({ children, tone = 'default', dot = false }: BadgeProps) {
   return (
     <span
       className={clsx('badge', {
-        'badge-success': tone === 'success',
-        'badge-danger': tone === 'danger',
-        'badge-warning': tone === 'warning',
-        'badge-muted': tone === 'muted' || tone === 'neutral',
+        'badge--success': tone === 'success',
+        'badge--danger': tone === 'danger',
+        'badge--warning': tone === 'warning',
+        'badge--muted': tone === 'muted' || tone === 'neutral',
+        'badge--default': tone === 'default',
+        'badge--dot': dot,
       })}
     >
       {children}

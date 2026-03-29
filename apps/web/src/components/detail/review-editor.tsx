@@ -1,9 +1,8 @@
-import { useEffect, useId, useMemo, useRef } from 'react';
-
 import Placeholder from '@tiptap/extension-placeholder';
 import { Markdown } from '@tiptap/markdown';
 import { EditorContent, useEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
+import { useEffect, useId, useMemo, useRef } from 'react';
 
 interface ReviewEditorProps {
   value: string;
@@ -11,6 +10,22 @@ interface ReviewEditorProps {
   saveState: 'idle' | 'saving' | 'saved' | 'error';
   onChange: (value: string) => void;
   onFocusReady?: (focus: (() => void) | null) => void;
+}
+
+function SaveIndicator({ state }: { state: ReviewEditorProps['saveState'] }) {
+  if (state === 'idle') return null;
+
+  const label =
+    state === 'saving' ? 'Saving' : state === 'error' ? 'Save failed' : 'Saved';
+
+  return (
+    <span
+      className={`save-indicator${state === 'saving' ? ' save-indicator--saving' : ''}${state === 'error' ? ' save-indicator--error' : ''}`}
+    >
+      <span className="save-indicator__dot" />
+      {label}
+    </span>
+  );
 }
 
 export function ReviewEditor({
@@ -21,7 +36,6 @@ export function ReviewEditor({
   onFocusReady,
 }: ReviewEditorProps) {
   const labelId = useId();
-  const hintId = useId();
   const latestMarkdownRef = useRef(value);
   const onChangeRef = useRef(onChange);
   const extensions = useMemo(
@@ -33,8 +47,7 @@ export function ReviewEditor({
         },
       }),
       Placeholder.configure({
-        placeholder:
-          'Write inline with markdown shortcuts like #, -, or **bold**.',
+        placeholder: 'Write with markdown shortcuts — #, -, **bold**, etc.',
       }),
     ],
     [],
@@ -57,8 +70,6 @@ export function ReviewEditor({
           role: 'textbox',
           'aria-multiline': 'true',
           'aria-label': 'Review markdown editor',
-          'aria-labelledby': labelId,
-          'aria-describedby': hintId,
         },
       },
       onUpdate: ({ editor: currentEditor }) => {
@@ -112,30 +123,21 @@ export function ReviewEditor({
   }, [editor, onFocusReady]);
 
   return (
-    <section className="panel stack-md">
-      <div className="section-heading">
-        <h2>Review content</h2>
-        <span>
-          {saveState === 'saving'
-            ? 'Saving…'
-            : saveState === 'error'
-              ? 'Save failed'
-              : 'Saved'}
+    <div className="card">
+      <div className="card__header">
+        <span id={labelId} className="card__title">
+          Content
         </span>
+        <SaveIndicator state={saveState} />
       </div>
-      <label className="field">
-        <span id={labelId} className="field__label">
-          Review markdown editor
-        </span>
-        <div id={hintId} className="editor-hint">
-          No toolbar. Use markdown syntax and keyboard shortcuts inline.
-        </div>
+      <div className="card__body" style={{ padding: 0 }}>
         <div
           className={`editor-surface${readOnly ? ' editor-surface--readonly' : ''}`}
+          style={{ border: 'none', borderRadius: 0 }}
         >
           <EditorContent editor={editor} />
         </div>
-      </label>
-    </section>
+      </div>
+    </div>
   );
 }

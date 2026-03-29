@@ -1,7 +1,5 @@
 import type { RequestDetail } from '@clawreview/shared';
 
-import { Badge } from '../common/badge.js';
-
 interface ResumeStatusBannerProps {
   request: RequestDetail;
   onRetry?: () => void;
@@ -17,37 +15,37 @@ export function ResumeStatusBanner({
     return null;
   }
 
-  const tone =
+  const variant =
     request.resumeStatus === 'failed'
       ? 'danger'
       : request.resumeStatus === 'succeeded'
         ? 'success'
         : 'warning';
 
-  const label = request.resumeStatus.replace(/_/g, ' ');
+  const label =
+    request.resumeStatus === 'succeeded'
+      ? 'Resume dispatched successfully'
+      : request.resumeStatus === 'failed'
+        ? 'Resume failed'
+        : `Resume ${request.resumeStatus.replace(/_/g, ' ')}`;
 
   return (
-    <div className={`resume-banner tone-${tone}`}>
-      <div className="resume-banner__header">
-        <Badge tone={tone}>{label}</Badge>
-        {request.resumeStatus === 'failed' && onRetry ? (
-          <button
-            type="button"
-            className="button button--ghost"
-            onClick={onRetry}
-            disabled={retrying}
-          >
-            {retrying ? 'Retrying…' : 'Retry resume'}
-          </button>
+    <div className={`resume-banner resume-banner--${variant}`}>
+      <div className="resume-banner__text">
+        <span className="resume-banner__label">{label}</span>
+        {request.resumeError ? (
+          <span className="resume-banner__detail">{request.resumeError}</span>
         ) : null}
       </div>
-      {request.resumeStatus === 'succeeded' ? (
-        <p className="resume-banner__success">
-          Resume dispatched successfully.
-        </p>
-      ) : null}
-      {request.resumeError ? (
-        <p className="resume-banner__error">{request.resumeError}</p>
+      {request.resumeStatus === 'failed' && onRetry ? (
+        <button
+          type="button"
+          className="button button--sm button--ghost"
+          onClick={onRetry}
+          disabled={retrying}
+        >
+          {retrying ? 'Retrying…' : 'Retry'}
+        </button>
       ) : null}
     </div>
   );

@@ -15,5 +15,5 @@ function reviewTone(state) {
     }
 }
 export function RequestListItemRow({ request, selected, onSelect, }) {
-    return (_jsxs("button", { className: clsx('request-row', selected && 'selected'), onClick: () => onSelect(request.id), type: "button", children: [_jsxs("div", { className: "request-row__title-line", children: [_jsx("span", { className: "request-row__title", children: request.title }), _jsx(Badge, { tone: reviewTone(request.reviewState), children: request.reviewState })] }), _jsxs("div", { className: "request-row__meta", children: [_jsx("span", { children: request.sourceAgentLabel || request.sourceAgentId }), _jsx("span", { children: formatRelativeTime(request.updatedAt) })] })] }));
+    return (_jsxs("button", { className: clsx('request-row', selected && 'selected'), onClick: () => onSelect(request.id), type: "button", children: [_jsxs("div", { className: "request-row__title-line", children: [_jsx("span", { className: "request-row__title", children: request.title }), _jsx(Badge, { tone: reviewTone(request.reviewState), dot: true, children: request.reviewState })] }), _jsxs("div", { className: "request-row__meta", children: [_jsx("span", { children: request.sourceAgentLabel || request.sourceAgentId }), _jsx("span", { children: formatRelativeTime(request.updatedAt) })] })] }));
 }

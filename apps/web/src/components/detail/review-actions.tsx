@@ -1,6 +1,5 @@
-import { useMemo, useState } from 'react';
-
 import type { ReviewAction } from '@clawreview/shared';
+import { useMemo, useState } from 'react';
 
 export interface ReviewDraftState {
   action: ReviewAction;
@@ -30,7 +29,7 @@ export function ReviewActions({
 
   const submitLabel = useMemo(() => {
     const selected = actions.find((item) => item.value === draft.action);
-    return selected ? `${selected.label} request` : 'Submit review';
+    return selected ? selected.label : 'Submit';
   }, [draft.action]);
 
   async function handleSubmit() {
@@ -47,53 +46,50 @@ export function ReviewActions({
   }
 
   return (
-    <section className="panel stack-md">
-      <div className="stack-xs">
-        <div className="section-title">Review</div>
-        <div className="muted">
-          Approve to continue, comment to request another pass, or reject to
-          stop this path.
+    <div className="card">
+      <div className="card__header">
+        <span className="card__title">Review</span>
+      </div>
+      <div className="card__body">
+        <div className="review-section">
+          <div className="segmented" role="tablist" aria-label="Review action">
+            {actions.map((item) => (
+              <button
+                key={item.value}
+                type="button"
+                className={`segmented__item${draft.action === item.value ? ' segmented__item--active' : ''}`}
+                aria-pressed={draft.action === item.value}
+                onClick={() => onChange({ ...draft, action: item.value })}
+                disabled={disabled || submitting}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+
+          <textarea
+            className="textarea"
+            rows={3}
+            placeholder="Optional comment for the agent..."
+            value={draft.comment}
+            onChange={(event) =>
+              onChange({ ...draft, comment: event.target.value })
+            }
+            disabled={disabled || submitting}
+          />
+
+          <div className="actions-row">
+            <button
+              type="button"
+              className={`button ${draft.action === 'reject' ? 'button--danger' : 'button--primary'}`}
+              onClick={handleSubmit}
+              disabled={disabled || submitting}
+            >
+              {submitting ? 'Submitting…' : submitLabel}
+            </button>
+          </div>
         </div>
       </div>
-      <div className="segmented" role="tablist" aria-label="Review actions">
-        {actions.map((item) => (
-          <button
-            key={item.value}
-            type="button"
-            className={`segmented__item ${
-              draft.action === item.value ? 'segmented__item--active' : ''
-            }`}
-            aria-pressed={draft.action === item.value}
-            onClick={() => onChange({ ...draft, action: item.value })}
-            disabled={disabled || submitting}
-          >
-            {item.label}
-          </button>
-        ))}
-      </div>
-      <label className="field">
-        <span className="field__label">Reviewer comment</span>
-        <textarea
-          className="textarea"
-          rows={4}
-          placeholder="Optional notes for the agent..."
-          value={draft.comment}
-          onChange={(event) =>
-            onChange({ ...draft, comment: event.target.value })
-          }
-          disabled={disabled || submitting}
-        />
-      </label>
-      <div className="actions-row">
-        <button
-          type="button"
-          className="button button--primary"
-          onClick={handleSubmit}
-          disabled={disabled || submitting}
-        >
-          {submitting ? 'Submitting…' : submitLabel}
-        </button>
-      </div>
-    </section>
+    </div>
   );
 }

@@ -1,12 +1,15 @@
 import type { RequestDetail } from '@clawreview/shared';
 
 export function RequestSummary({ request }: { request: RequestDetail }) {
+  if (!request.summary) {
+    return null;
+  }
+
   return (
-    <section className="panel">
-      <h3 className="panel-title">Summary</h3>
-      <p className="summary-text">
-        {request.summary || 'No summary was provided for this review request.'}
-      </p>
-    </section>
+    <div className="card">
+      <div className="card__body">
+        <p className="summary-text">{request.summary}</p>
+      </div>
+    </div>
   );
 }

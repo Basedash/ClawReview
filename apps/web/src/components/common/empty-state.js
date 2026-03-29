@@ -1,4 +1,4 @@
 import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
 export function EmptyState({ title, description, action }) {
-    return (_jsxs("div", { className: "empty-state", children: [_jsx("div", { className: "empty-state__title", children: title }), _jsx("div", { className: "empty-state__description", children: description }), action ? _jsx("div", { className: "empty-state__action", children: action }) : null] }));
+    return (_jsxs("div", { className: "empty-state", children: [_jsx("div", { className: "empty-state__icon", children: _jsxs("svg", { width: "18", height: "18", viewBox: "0 0 16 16", fill: "none", "aria-hidden": "true", children: [_jsx("rect", { x: "2", y: "2", width: "12", height: "12", rx: "3", stroke: "currentColor", strokeWidth: "1.5" }), _jsx("path", { d: "M6 8h4", stroke: "currentColor", strokeWidth: "1.5", strokeLinecap: "round" })] }) }), _jsx("div", { className: "empty-state__title", children: title }), _jsx("div", { className: "empty-state__description", children: description }), action ? _jsx("div", { style: { marginTop: 8 }, children: action }) : null] }));
 }

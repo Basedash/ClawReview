@@ -78,13 +78,20 @@ export function LayoutShell({
       <div className="app-shell">
         <aside className="sidebar">
           <div className="sidebar__header">
-            <div>
-              <div className="eyebrow">Human review</div>
-              <h1 className="sidebar__title">ClawReview</h1>
+            <div className="sidebar__brand">
+              <div className="sidebar__logo">
+                <svg viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                  <path
+                    d="M4 8l3 3 5-6"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </div>
+              <span className="sidebar__title">ClawReview</span>
             </div>
-            <p className="sidebar__subtitle">
-              Review queued agent work and resume the originating workflow.
-            </p>
           </div>
 
           <div className="sidebar__controls">
@@ -108,12 +115,15 @@ export function LayoutShell({
             />
           ) : (
             <EmptyState
-              title="No matching requests"
-              description="Open review requests will appear here once an agent submits them."
+              title="No requests"
+              description="Review requests from agents will appear here."
             />
           )}
 
           <div className="sidebar__footer">
+            <span className="sidebar__footer-info">
+              {requests.length} request{requests.length !== 1 ? 's' : ''}
+            </span>
             <ThemeToggle theme={theme} onToggle={onThemeToggle} />
           </div>
         </aside>
@@ -133,33 +143,32 @@ export function LayoutShell({
               />
               <RequestSummary request={selectedRequest} />
 
-              <section className="card detail-pane__primary">
-                <ReviewEditor
-                  value={selectedRequest.editedContentMarkdown}
-                  readOnly={selectedRequest.status === 'closed'}
-                  saveState={saveState}
-                  onChange={onContentChange}
-                  onFocusReady={registerEditorFocus}
-                />
-                <ReviewActions
-                  draft={reviewDraft}
-                  disabled={
-                    saveState === 'saving' ||
-                    selectedRequest.status === 'closed' ||
-                    isReviewSubmitting
-                  }
-                  onChange={onReviewDraftChange}
-                  onSubmit={onReviewSubmit}
-                />
-              </section>
+              <ReviewEditor
+                value={selectedRequest.editedContentMarkdown}
+                readOnly={selectedRequest.status === 'closed'}
+                saveState={saveState}
+                onChange={onContentChange}
+                onFocusReady={registerEditorFocus}
+              />
+
+              <ReviewActions
+                draft={reviewDraft}
+                disabled={
+                  saveState === 'saving' ||
+                  selectedRequest.status === 'closed' ||
+                  isReviewSubmitting
+                }
+                onChange={onReviewDraftChange}
+                onSubmit={onReviewSubmit}
+              />
 
               <ActivityLog events={selectedRequest.events} />
             </div>
           ) : (
             <div className="detail-pane__empty">
               <EmptyState
-                title="Select a request"
-                description="Choose a request from the sidebar to inspect its summary, edit its markdown, and send a review decision."
+                title="No request selected"
+                description="Select a request from the sidebar to begin reviewing."
               />
             </div>
           )}

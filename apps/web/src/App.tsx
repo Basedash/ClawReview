@@ -1,6 +1,3 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Navigate, Route, Routes, useNavigate, useParams } from 'react-router-dom';
-
 import type {
   RequestDetail,
   RequestFilterStatus,
@@ -8,9 +5,19 @@ import type {
   SubmitReviewInput,
   UpdateRequestContentInput,
 } from '@clawreview/shared';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Navigate,
+  Route,
+  Routes,
+  useNavigate,
+  useParams,
+} from 'react-router-dom';
 
-import { LayoutShell, type ReviewDraftState } from './components/layout-shell.js';
-import { useTheme } from './lib/use-theme.js';
+import {
+  LayoutShell,
+  type ReviewDraftState,
+} from './components/layout-shell.js';
 import {
   fetchRequestDetail,
   fetchRequests,
@@ -19,6 +26,7 @@ import {
   updateRequestContent,
 } from './lib/api.js';
 import { getShortcutEntries, isEditableTarget } from './lib/shortcuts.js';
+import { useTheme } from './lib/use-theme.js';
 import './styles/tokens.css';
 import './styles/globals.css';
 
@@ -34,9 +42,10 @@ function ReviewWorkspace() {
   const { requestId } = useParams<{ requestId?: string }>();
   const selectedId = requestId ?? null;
   const [requests, setRequests] = useState<RequestListItem[]>([]);
-  const [selectedRequest, setSelectedRequest] = useState<RequestDetail | null>(null);
-  const [statusFilter, setStatusFilter] =
-    useState<RequestFilterStatus>('open');
+  const [selectedRequest, setSelectedRequest] = useState<RequestDetail | null>(
+    null,
+  );
+  const [statusFilter, setStatusFilter] = useState<RequestFilterStatus>('open');
   const [search, setSearch] = useState('');
   const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
   const [saveState, setSaveState] = useState<SaveState>('idle');

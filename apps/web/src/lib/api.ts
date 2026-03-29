@@ -28,13 +28,14 @@ async function requestJson<T>(input: string, init?: RequestInit): Promise<T> {
     ...init,
   });
 
-  const payload = (await response.json().catch(() => null)) as
-    | RequestErrorPayload
-    | null;
+  const payload = (await response
+    .json()
+    .catch(() => null)) as RequestErrorPayload | null;
 
   if (!response.ok) {
     const message =
-      payload?.error?.message ?? `Request failed with status ${response.status}`;
+      payload?.error?.message ??
+      `Request failed with status ${response.status}`;
     throw new Error(message);
   }
 
