@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Navigate, Route, Routes, useNavigate, useParams } from 'react-router-dom';
 
 import type {
   RequestDetail,
@@ -25,6 +26,7 @@ import './styles/globals.css';
 
 type SaveState = 'idle' | 'saving' | 'saved' | 'error';
 
+const SAVE_DEBOUNCE_MS = 400;
 const REVIEW_POLL_INTERVAL_MS = 2_000;
 
 function toReviewState(
@@ -166,9 +168,15 @@ function buildOptimisticRetryRequest(request: RequestDetail): RequestDetail {
   };
 }
 
-export default function App() {
+function requestPath(requestId: string) {
+  return `/requests/${encodeURIComponent(requestId)}`;
+}
+
+function ReviewWorkspace() {
+  const navigate = useNavigate();
+  const { requestId } = useParams<{ requestId?: string }>();
+  const selectedId = requestId ?? null;
   const [requests, setRequests] = useState<RequestListItem[]>([]);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedRequest, setSelectedRequest] = useState<RequestDetail | null>(null);
   const [statusFilter, setStatusFilter] =
     useState<RequestFilterStatus>('open');
@@ -176,7 +184,6 @@ export default function App() {
   const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
   const [saveState, setSaveState] = useState<SaveState>('idle');
   const [isReviewSubmitting, setIsReviewSubmitting] = useState(false);
-  const [reloadKey, setReloadKey] = useState(0);
   const [reviewDraft, setReviewDraft] = useState<ReviewDraftState>({
     action: 'approve',
     comment: '',
@@ -184,8 +191,24 @@ export default function App() {
   const { theme, toggle: toggleTheme } = useTheme();
   const searchRef = useRef<HTMLInputElement | null>(null);
   const editorFocusRef = useRef<(() => void) | null>(null);
+  const selectedIdRef = useRef<string | null>(selectedId);
+  const saveTimeoutRef = useRef<number | null>(null);
+  const syncedMarkdownRef = useRef('');
+  const saveTokenRef = useRef(0);
 
   const shortcutEntries = useMemo(() => getShortcutEntries(), []);
+  const selectRequest = useCallback(
+    (requestId: string | null, options?: { replace?: boolean }) => {
+      void navigate(requestId ? requestPath(requestId) : '/', {
+        replace: options?.replace ?? false,
+      });
+    },
+    [navigate],
+  );
+
+  useEffect(() => {
+    selectedIdRef.current = selectedId;
+  }, [selectedId]);
 
   useEffect(() => {
     let mounted = true;
@@ -200,33 +223,54 @@ export default function App() {
       }
 
       setRequests(response.requests);
-      setSelectedId((current) => current ?? response.requests[0]?.id ?? null);
+
+      const nextSelectedId = selectedIdRef.current;
+      if (!nextSelectedId && response.requests[0]?.id) {
+        selectRequest(response.requests[0].id, { replace: true });
+      }
     });
 
     return () => {
       mounted = false;
     };
-  }, [statusFilter, search, reloadKey]);
+  }, [statusFilter, search, selectRequest]);
 
   useEffect(() => {
+    saveTokenRef.current += 1;
+    syncedMarkdownRef.current = '';
+    setSaveState('idle');
+    if (saveTimeoutRef.current !== null) {
+      window.clearTimeout(saveTimeoutRef.current);
+      saveTimeoutRef.current = null;
+    }
+
     if (!selectedId) {
       setSelectedRequest(null);
       return;
     }
 
     let mounted = true;
-    void fetchRequestDetail(selectedId).then((response) => {
-      if (!mounted) {
-        return;
-      }
+    void fetchRequestDetail(selectedId)
+      .then((response) => {
+        if (!mounted) {
+          return;
+        }
+        setSelectedRequest(response.request);
+        syncedMarkdownRef.current = response.request.editedContentMarkdown;
+        setSaveState('saved');
+      })
+      .catch(() => {
+        if (!mounted) {
+          return;
+        }
 
-      setSelectedRequest(response.request);
-    });
+        setSelectedRequest(null);
+      });
 
     return () => {
       mounted = false;
     };
-  }, [selectedId, reloadKey]);
+  }, [selectedId]);
 
   useEffect(() => {
     if (
@@ -283,6 +327,78 @@ export default function App() {
   ]);
 
   useEffect(() => {
+    if (!selectedRequest) {
+      return;
+    }
+
+    if (saveTimeoutRef.current !== null) {
+      window.clearTimeout(saveTimeoutRef.current);
+      saveTimeoutRef.current = null;
+    }
+
+    if (selectedRequest.status === 'closed') {
+      return;
+    }
+
+    const nextMarkdown = selectedRequest.editedContentMarkdown;
+    if (nextMarkdown === syncedMarkdownRef.current) {
+      return;
+    }
+
+    setSaveState('saving');
+    const requestId = selectedRequest.id;
+    const saveToken = saveTokenRef.current + 1;
+    saveTokenRef.current = saveToken;
+
+    saveTimeoutRef.current = window.setTimeout(async () => {
+      try {
+        const updated = await updateRequestContent(requestId, {
+          editedContentMarkdown: nextMarkdown,
+        } satisfies UpdateRequestContentInput);
+
+        if (saveTokenRef.current !== saveToken) {
+          return;
+        }
+
+        syncedMarkdownRef.current = updated.request.editedContentMarkdown;
+        setSelectedRequest((current) =>
+          current?.id === requestId ? updated.request : current,
+        );
+        setRequests((current) =>
+          current.map((request) =>
+            request.id === requestId
+              ? {
+                  ...request,
+                  updatedAt: updated.request.updatedAt,
+                  isEdited: updated.request.isEdited,
+                  status: updated.request.status,
+                  reviewState: updated.request.reviewState,
+                  resumeStatus: updated.request.resumeStatus,
+                }
+              : request,
+          ),
+        );
+        setSaveState('saved');
+      } catch {
+        if (saveTokenRef.current === saveToken) {
+          setSaveState('error');
+        }
+      }
+    }, SAVE_DEBOUNCE_MS);
+
+    return () => {
+      if (saveTimeoutRef.current !== null) {
+        window.clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = null;
+      }
+    };
+  }, [
+    selectedRequest?.editedContentMarkdown,
+    selectedRequest?.id,
+    selectedRequest?.status,
+  ]);
+
+  useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       if (isEditableTarget(event.target)) {
         if (event.key === '?' && event.shiftKey) {
@@ -294,29 +410,39 @@ export default function App() {
       switch (event.key) {
         case 'j':
           event.preventDefault();
-          setSelectedId((current) => {
-            if (!requests.length) {
-              return null;
-            }
-            const index = requests.findIndex((request) => request.id === current);
-            return (
-              requests[Math.min(index + 1, requests.length - 1)]?.id ??
-              requests[0]?.id ??
-              null
-            );
-          });
+          selectRequest(
+            (() => {
+              if (!requests.length) {
+                return null;
+              }
+
+              const index = requests.findIndex(
+                (request) => request.id === selectedIdRef.current,
+              );
+              return (
+                requests[Math.min(index + 1, requests.length - 1)]?.id ??
+                requests[0]?.id ??
+                null
+              );
+            })(),
+          );
           break;
         case 'k':
           event.preventDefault();
-          setSelectedId((current) => {
-            if (!requests.length) {
-              return null;
-            }
-            const index = requests.findIndex((request) => request.id === current);
-            return (
-              requests[Math.max(index - 1, 0)]?.id ?? requests[0]?.id ?? null
-            );
-          });
+          selectRequest(
+            (() => {
+              if (!requests.length) {
+                return null;
+              }
+
+              const index = requests.findIndex(
+                (request) => request.id === selectedIdRef.current,
+              );
+              return (
+                requests[Math.max(index - 1, 0)]?.id ?? requests[0]?.id ?? null
+              );
+            })(),
+          );
           break;
         case '/':
           event.preventDefault();
@@ -332,29 +458,39 @@ export default function App() {
           break;
         case '[':
           event.preventDefault();
-          setSelectedId((current) => {
-            if (!requests.length) {
-              return null;
-            }
-            const index = requests.findIndex((request) => request.id === current);
-            return (
-              requests[Math.max(index - 1, 0)]?.id ?? requests[0]?.id ?? null
-            );
-          });
+          selectRequest(
+            (() => {
+              if (!requests.length) {
+                return null;
+              }
+
+              const index = requests.findIndex(
+                (request) => request.id === selectedIdRef.current,
+              );
+              return (
+                requests[Math.max(index - 1, 0)]?.id ?? requests[0]?.id ?? null
+              );
+            })(),
+          );
           break;
         case ']':
           event.preventDefault();
-          setSelectedId((current) => {
-            if (!requests.length) {
-              return null;
-            }
-            const index = requests.findIndex((request) => request.id === current);
-            return (
-              requests[Math.min(index + 1, requests.length - 1)]?.id ??
-              requests[0]?.id ??
-              null
-            );
-          });
+          selectRequest(
+            (() => {
+              if (!requests.length) {
+                return null;
+              }
+
+              const index = requests.findIndex(
+                (request) => request.id === selectedIdRef.current,
+              );
+              return (
+                requests[Math.min(index + 1, requests.length - 1)]?.id ??
+                requests[0]?.id ??
+                null
+              );
+            })(),
+          );
           break;
         default:
           if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
@@ -367,24 +503,18 @@ export default function App() {
     return () => {
       window.removeEventListener('keydown', onKeyDown);
     };
-  }, [requests]);
+  }, [requests, selectRequest]);
 
-  async function handleContentChange(nextMarkdown: string) {
-    if (!selectedRequest) {
-      return;
-    }
-
-    setSaveState('saving');
-    try {
-      const updated = await updateRequestContent(selectedRequest.id, {
-        editedContentMarkdown: nextMarkdown,
-      } satisfies UpdateRequestContentInput);
-      setSelectedRequest(updated.request);
-      setSaveState('saved');
-      setReloadKey((current) => current + 1);
-    } catch {
-      setSaveState('error');
-    }
+  function handleContentChange(nextMarkdown: string) {
+    setSelectedRequest((current) =>
+      current
+        ? {
+            ...current,
+            editedContentMarkdown: nextMarkdown,
+            isEdited: nextMarkdown !== current.originalContentMarkdown,
+          }
+        : current,
+    );
   }
 
   async function handleReviewSubmit(input: {
@@ -402,6 +532,12 @@ export default function App() {
       input,
     );
 
+    saveTokenRef.current += 1;
+    if (saveTimeoutRef.current !== null) {
+      window.clearTimeout(saveTimeoutRef.current);
+      saveTimeoutRef.current = null;
+    }
+    setSaveState('saved');
     setSelectedRequest(optimisticRequest);
     setRequests((current) =>
       reconcileRequestList(current, statusFilter, optimisticRequest),
@@ -412,6 +548,7 @@ export default function App() {
       const response = await submitReview(selectedRequest.id, {
         action: input.action,
         comment: input.comment,
+        editedContentMarkdown: selectedRequest.editedContentMarkdown,
       } satisfies SubmitReviewInput);
       setSelectedRequest(response.request);
       setRequests((current) =>
@@ -492,7 +629,7 @@ export default function App() {
       onThemeToggle={toggleTheme}
       onSearchChange={setSearch}
       onStatusFilterChange={setStatusFilter}
-      onSelectRequest={setSelectedId}
+      onSelectRequest={(requestId) => selectRequest(requestId)}
       onCloseShortcuts={() => setIsShortcutsOpen(false)}
       onContentChange={handleContentChange}
       onReviewDraftChange={setReviewDraft}
@@ -502,5 +639,15 @@ export default function App() {
         editorFocusRef.current = focus;
       }}
     />
+  );
+}
+
+export default function App() {
+  return (
+    <Routes>
+      <Route path="/" element={<ReviewWorkspace />} />
+      <Route path="/requests/:requestId" element={<ReviewWorkspace />} />
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
   );
 }

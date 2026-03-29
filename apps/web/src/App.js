@@ -1,11 +1,13 @@
-import { jsx as _jsx } from "react/jsx-runtime";
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Navigate, Route, Routes, useNavigate, useParams } from 'react-router-dom';
 import { LayoutShell } from './components/layout-shell.js';
 import { useTheme } from './lib/use-theme.js';
 import { fetchRequestDetail, fetchRequests, retryResume, submitReview, updateRequestContent, } from './lib/api.js';
 import { getShortcutEntries, isEditableTarget } from './lib/shortcuts.js';
 import './styles/tokens.css';
 import './styles/globals.css';
+const SAVE_DEBOUNCE_MS = 400;
 const REVIEW_POLL_INTERVAL_MS = 2_000;
 function toReviewState(action) {
     switch (action) {
@@ -102,16 +104,20 @@ function buildOptimisticRetryRequest(request) {
         ],
     };
 }
-export default function App() {
+function requestPath(requestId) {
+    return `/requests/${encodeURIComponent(requestId)}`;
+}
+function ReviewWorkspace() {
+    const navigate = useNavigate();
+    const { requestId } = useParams();
+    const selectedId = requestId ?? null;
     const [requests, setRequests] = useState([]);
-    const [selectedId, setSelectedId] = useState(null);
     const [selectedRequest, setSelectedRequest] = useState(null);
     const [statusFilter, setStatusFilter] = useState('open');
     const [search, setSearch] = useState('');
     const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
     const [saveState, setSaveState] = useState('idle');
     const [isReviewSubmitting, setIsReviewSubmitting] = useState(false);
-    const [reloadKey, setReloadKey] = useState(0);
     const [reviewDraft, setReviewDraft] = useState({
         action: 'approve',
         comment: '',
@@ -119,7 +125,19 @@ export default function App() {
     const { theme, toggle: toggleTheme } = useTheme();
     const searchRef = useRef(null);
     const editorFocusRef = useRef(null);
+    const selectedIdRef = useRef(selectedId);
+    const saveTimeoutRef = useRef(null);
+    const syncedMarkdownRef = useRef('');
+    const saveTokenRef = useRef(0);
     const shortcutEntries = useMemo(() => getShortcutEntries(), []);
+    const selectRequest = useCallback((requestId, options) => {
+        void navigate(requestId ? requestPath(requestId) : '/', {
+            replace: options?.replace ?? false,
+        });
+    }, [navigate]);
+    useEffect(() => {
+        selectedIdRef.current = selectedId;
+    }, [selectedId]);
     useEffect(() => {
         let mounted = true;
         void fetchRequests({
@@ -131,28 +149,47 @@ export default function App() {
                 return;
             }
             setRequests(response.requests);
-            setSelectedId((current) => current ?? response.requests[0]?.id ?? null);
+            const nextSelectedId = selectedIdRef.current;
+            if (!nextSelectedId && response.requests[0]?.id) {
+                selectRequest(response.requests[0].id, { replace: true });
+            }
         });
         return () => {
             mounted = false;
         };
-    }, [statusFilter, search, reloadKey]);
+    }, [statusFilter, search, selectRequest]);
     useEffect(() => {
+        saveTokenRef.current += 1;
+        syncedMarkdownRef.current = '';
+        setSaveState('idle');
+        if (saveTimeoutRef.current !== null) {
+            window.clearTimeout(saveTimeoutRef.current);
+            saveTimeoutRef.current = null;
+        }
         if (!selectedId) {
             setSelectedRequest(null);
             return;
         }
         let mounted = true;
-        void fetchRequestDetail(selectedId).then((response) => {
+        void fetchRequestDetail(selectedId)
+            .then((response) => {
             if (!mounted) {
                 return;
             }
             setSelectedRequest(response.request);
+            syncedMarkdownRef.current = response.request.editedContentMarkdown;
+            setSaveState('saved');
+        })
+            .catch(() => {
+            if (!mounted) {
+                return;
+            }
+            setSelectedRequest(null);
         });
         return () => {
             mounted = false;
         };
-    }, [selectedId, reloadKey]);
+    }, [selectedId]);
     useEffect(() => {
         if (!selectedRequest ||
             selectedRequest.resumeStatus !== 'pending' ||
@@ -198,6 +235,64 @@ export default function App() {
         statusFilter,
     ]);
     useEffect(() => {
+        if (!selectedRequest) {
+            return;
+        }
+        if (saveTimeoutRef.current !== null) {
+            window.clearTimeout(saveTimeoutRef.current);
+            saveTimeoutRef.current = null;
+        }
+        if (selectedRequest.status === 'closed') {
+            return;
+        }
+        const nextMarkdown = selectedRequest.editedContentMarkdown;
+        if (nextMarkdown === syncedMarkdownRef.current) {
+            return;
+        }
+        setSaveState('saving');
+        const requestId = selectedRequest.id;
+        const saveToken = saveTokenRef.current + 1;
+        saveTokenRef.current = saveToken;
+        saveTimeoutRef.current = window.setTimeout(async () => {
+            try {
+                const updated = await updateRequestContent(requestId, {
+                    editedContentMarkdown: nextMarkdown,
+                });
+                if (saveTokenRef.current !== saveToken) {
+                    return;
+                }
+                syncedMarkdownRef.current = updated.request.editedContentMarkdown;
+                setSelectedRequest((current) => current?.id === requestId ? updated.request : current);
+                setRequests((current) => current.map((request) => request.id === requestId
+                    ? {
+                        ...request,
+                        updatedAt: updated.request.updatedAt,
+                        isEdited: updated.request.isEdited,
+                        status: updated.request.status,
+                        reviewState: updated.request.reviewState,
+                        resumeStatus: updated.request.resumeStatus,
+                    }
+                    : request));
+                setSaveState('saved');
+            }
+            catch {
+                if (saveTokenRef.current === saveToken) {
+                    setSaveState('error');
+                }
+            }
+        }, SAVE_DEBOUNCE_MS);
+        return () => {
+            if (saveTimeoutRef.current !== null) {
+                window.clearTimeout(saveTimeoutRef.current);
+                saveTimeoutRef.current = null;
+            }
+        };
+    }, [
+        selectedRequest?.editedContentMarkdown,
+        selectedRequest?.id,
+        selectedRequest?.status,
+    ]);
+    useEffect(() => {
         function onKeyDown(event) {
             if (isEditableTarget(event.target)) {
                 if (event.key === '?' && event.shiftKey) {
@@ -208,25 +303,25 @@ export default function App() {
             switch (event.key) {
                 case 'j':
                     event.preventDefault();
-                    setSelectedId((current) => {
+                    selectRequest((() => {
                         if (!requests.length) {
                             return null;
                         }
-                        const index = requests.findIndex((request) => request.id === current);
+                        const index = requests.findIndex((request) => request.id === selectedIdRef.current);
                         return (requests[Math.min(index + 1, requests.length - 1)]?.id ??
                             requests[0]?.id ??
                             null);
-                    });
+                    })());
                     break;
                 case 'k':
                     event.preventDefault();
-                    setSelectedId((current) => {
+                    selectRequest((() => {
                         if (!requests.length) {
                             return null;
                         }
-                        const index = requests.findIndex((request) => request.id === current);
+                        const index = requests.findIndex((request) => request.id === selectedIdRef.current);
                         return (requests[Math.max(index - 1, 0)]?.id ?? requests[0]?.id ?? null);
-                    });
+                    })());
                     break;
                 case '/':
                     event.preventDefault();
@@ -242,25 +337,25 @@ export default function App() {
                     break;
                 case '[':
                     event.preventDefault();
-                    setSelectedId((current) => {
+                    selectRequest((() => {
                         if (!requests.length) {
                             return null;
                         }
-                        const index = requests.findIndex((request) => request.id === current);
+                        const index = requests.findIndex((request) => request.id === selectedIdRef.current);
                         return (requests[Math.max(index - 1, 0)]?.id ?? requests[0]?.id ?? null);
-                    });
+                    })());
                     break;
                 case ']':
                     event.preventDefault();
-                    setSelectedId((current) => {
+                    selectRequest((() => {
                         if (!requests.length) {
                             return null;
                         }
-                        const index = requests.findIndex((request) => request.id === current);
+                        const index = requests.findIndex((request) => request.id === selectedIdRef.current);
                         return (requests[Math.min(index + 1, requests.length - 1)]?.id ??
                             requests[0]?.id ??
                             null);
-                    });
+                    })());
                     break;
                 default:
                     if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
@@ -272,23 +367,15 @@ export default function App() {
         return () => {
             window.removeEventListener('keydown', onKeyDown);
         };
-    }, [requests]);
-    async function handleContentChange(nextMarkdown) {
-        if (!selectedRequest) {
-            return;
-        }
-        setSaveState('saving');
-        try {
-            const updated = await updateRequestContent(selectedRequest.id, {
+    }, [requests, selectRequest]);
+    function handleContentChange(nextMarkdown) {
+        setSelectedRequest((current) => current
+            ? {
+                ...current,
                 editedContentMarkdown: nextMarkdown,
-            });
-            setSelectedRequest(updated.request);
-            setSaveState('saved');
-            setReloadKey((current) => current + 1);
-        }
-        catch {
-            setSaveState('error');
-        }
+                isEdited: nextMarkdown !== current.originalContentMarkdown,
+            }
+            : current);
     }
     async function handleReviewSubmit(input) {
         if (!selectedRequest) {
@@ -297,6 +384,12 @@ export default function App() {
         const previousRequest = selectedRequest;
         const previousDraft = reviewDraft;
         const optimisticRequest = buildOptimisticReviewRequest(selectedRequest, input);
+        saveTokenRef.current += 1;
+        if (saveTimeoutRef.current !== null) {
+            window.clearTimeout(saveTimeoutRef.current);
+            saveTimeoutRef.current = null;
+        }
+        setSaveState('saved');
         setSelectedRequest(optimisticRequest);
         setRequests((current) => reconcileRequestList(current, statusFilter, optimisticRequest));
         setReviewDraft({ action: 'approve', comment: '' });
@@ -305,6 +398,7 @@ export default function App() {
             const response = await submitReview(selectedRequest.id, {
                 action: input.action,
                 comment: input.comment,
+                editedContentMarkdown: selectedRequest.editedContentMarkdown,
             });
             setSelectedRequest(response.request);
             setRequests((current) => reconcileRequestList(current, statusFilter, response.request));
@@ -353,7 +447,10 @@ export default function App() {
             setIsReviewSubmitting(false);
         }
     }
-    return (_jsx(LayoutShell, { requests: requests, selectedId: selectedId, selectedRequest: selectedRequest, statusFilter: statusFilter, search: search, searchRef: searchRef, saveState: saveState, isReviewSubmitting: isReviewSubmitting, isShortcutsOpen: isShortcutsOpen, shortcutEntries: shortcutEntries, reviewDraft: reviewDraft, theme: theme, onThemeToggle: toggleTheme, onSearchChange: setSearch, onStatusFilterChange: setStatusFilter, onSelectRequest: setSelectedId, onCloseShortcuts: () => setIsShortcutsOpen(false), onContentChange: handleContentChange, onReviewDraftChange: setReviewDraft, onReviewSubmit: handleReviewSubmit, onRetryResume: handleRetryResume, registerEditorFocus: (focus) => {
+    return (_jsx(LayoutShell, { requests: requests, selectedId: selectedId, selectedRequest: selectedRequest, statusFilter: statusFilter, search: search, searchRef: searchRef, saveState: saveState, isReviewSubmitting: isReviewSubmitting, isShortcutsOpen: isShortcutsOpen, shortcutEntries: shortcutEntries, reviewDraft: reviewDraft, theme: theme, onThemeToggle: toggleTheme, onSearchChange: setSearch, onStatusFilterChange: setStatusFilter, onSelectRequest: (requestId) => selectRequest(requestId), onCloseShortcuts: () => setIsShortcutsOpen(false), onContentChange: handleContentChange, onReviewDraftChange: setReviewDraft, onReviewSubmit: handleReviewSubmit, onRetryResume: handleRetryResume, registerEditorFocus: (focus) => {
             editorFocusRef.current = focus;
         } }));
+}
+export default function App() {
+    return (_jsxs(Routes, { children: [_jsx(Route, { path: "/", element: _jsx(ReviewWorkspace, {}) }), _jsx(Route, { path: "/requests/:requestId", element: _jsx(ReviewWorkspace, {}) }), _jsx(Route, { path: "*", element: _jsx(Navigate, { to: "/", replace: true }) })] }));
 }
