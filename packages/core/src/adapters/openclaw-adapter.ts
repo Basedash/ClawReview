@@ -103,6 +103,14 @@ export class OpenClawHarnessAdapter implements HarnessAdapter {
     review: ReviewRecord,
   ): Promise<ResumeReviewResult> {
     const payload = this.buildResumePayload(request, review);
+
+    // Extract explicit delivery routing from source metadata if available.
+    // This ensures we always route back to the correct channel even if
+    // sessionKey is a UUID (UUIDs don't carry delivery context).
+    const meta = request.sourceMetadata as Record<string, unknown> | null;
+    const deliveryChannel = typeof meta?.deliveryChannel === 'string' ? meta.deliveryChannel : undefined;
+    const deliveryTarget = typeof meta?.deliveryTarget === 'string' ? meta.deliveryTarget : undefined;
+
     const requestBody: OpenClawResumeRequest = {
       agentId: payload.agentId,
       sessionKey: payload.sessionKey,
@@ -110,6 +118,8 @@ export class OpenClawHarnessAdapter implements HarnessAdapter {
       user: payload.user,
       gatewayBaseUrl: payload.gatewayBaseUrl,
       message: payload.message,
+      deliveryChannel,
+      deliveryTarget,
     };
 
     const response = await this.client.resumeSession(requestBody);
