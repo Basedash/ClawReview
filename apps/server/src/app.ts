@@ -54,7 +54,6 @@ export function buildServer(options: BuildServerOptions): FastifyInstance {
     root: webDistDir,
     prefix: '/',
     wildcard: false,
-    decorateReply: false,
   });
 
   app.setErrorHandler((error, request, reply) => {
