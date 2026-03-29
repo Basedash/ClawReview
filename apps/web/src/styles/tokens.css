@@ -50,13 +50,13 @@
 
   /* Layout */
   --sidebar-width: 300px;
-  --content-max: 720px;
+  --content-max: 1080px;
 
   /* Typography */
   --font-sans:
     "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui,
     sans-serif;
-  --font-mono: "SF Mono", "Cascadia Code", "Fira Code", ui-monospace, monospace;
+  --font-mono: "JetBrains Mono", "SF Mono", ui-monospace, monospace;
 
   /* Transitions */
   --duration-fast: 120ms;
