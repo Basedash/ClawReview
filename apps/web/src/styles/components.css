@@ -437,10 +437,120 @@
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
-.editor-textarea {
-  font-family: ui-monospace, 'SF Mono', 'Cascadia Code', monospace;
-  font-size: 13px;
+.editor-hint {
+  font-size: 12px;
+  color: var(--text-subtle);
+}
+
+.editor-surface {
   min-height: 280px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.editor-surface:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.editor-surface--readonly {
+  background: var(--panel-muted);
+}
+
+.editor-surface__content {
+  min-height: 280px;
+  padding: 14px 16px;
+  color: var(--text);
+  line-height: 1.7;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.editor-surface__content:focus {
+  outline: none;
+}
+
+.editor-surface__content > *:first-child {
+  margin-top: 0;
+}
+
+.editor-surface__content > *:last-child {
+  margin-bottom: 0;
+}
+
+.editor-surface__content h1,
+.editor-surface__content h2,
+.editor-surface__content h3,
+.editor-surface__content h4,
+.editor-surface__content h5,
+.editor-surface__content h6 {
+  margin: 1.2em 0 0.55em;
+  line-height: 1.2;
+}
+
+.editor-surface__content h1 {
+  font-size: 1.7rem;
+}
+
+.editor-surface__content h2 {
+  font-size: 1.45rem;
+}
+
+.editor-surface__content h3 {
+  font-size: 1.2rem;
+}
+
+.editor-surface__content p,
+.editor-surface__content ul,
+.editor-surface__content ol,
+.editor-surface__content blockquote,
+.editor-surface__content pre {
+  margin: 0 0 0.9rem;
+}
+
+.editor-surface__content ul,
+.editor-surface__content ol {
+  padding-left: 1.4rem;
+}
+
+.editor-surface__content li + li {
+  margin-top: 0.25rem;
+}
+
+.editor-surface__content blockquote {
+  padding-left: 1rem;
+  border-left: 3px solid var(--border-strong);
+  color: var(--text-muted);
+}
+
+.editor-surface__content code {
+  font-family: ui-monospace, 'SF Mono', 'Cascadia Code', monospace;
+  font-size: 0.95em;
+  background: var(--panel-muted);
+  border-radius: 6px;
+  padding: 0.1em 0.35em;
+}
+
+.editor-surface__content pre {
+  background: var(--panel-muted);
+  border-radius: var(--radius-sm);
+  padding: 0.9rem 1rem;
+  overflow-x: auto;
+}
+
+.editor-surface__content pre code {
+  background: transparent;
+  padding: 0;
+}
+
+.editor-surface__content .tiptap-placeholder:first-child::before {
+  color: var(--text-subtle);
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
 }
 
 /* ── Buttons ─────────────────────────────────────────── */
