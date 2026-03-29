@@ -1,24 +1,40 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { ChildProcessWithoutNullStreams } from 'node:child_process';
+import { EventEmitter } from 'node:events';
 
 import { buildServer } from '../src/app.js';
 
+interface MockChildProcess extends EventEmitter {
+  stdout: EventEmitter;
+  stderr: EventEmitter;
+}
+
+vi.mock('node:child_process', () => ({
+  spawn: vi.fn(),
+}));
+
+const { spawn: spawnMock } = await import('node:child_process');
+
+beforeEach(() => {
+  spawnMock.mockReset();
+});
+
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.useRealTimers();
 });
 
 describe('server review APIs', () => {
   it('submits a review and closes the request', async () => {
-    const fetcher = vi.fn(async () => ({
-      ok: true,
-      status: 200,
-      text: async () => JSON.stringify({ id: 'resp_123' }),
-    })) as unknown as typeof fetch;
+    const child = new EventEmitter() as MockChildProcess;
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    spawnMock.mockReturnValue(child as unknown as ChildProcessWithoutNullStreams);
 
     const app = buildServer({
       databaseUrl: ':memory:',
       openclawBaseUrl: 'http://127.0.0.1:3456',
       openclawGatewayToken: 'token',
-      fetchFn: fetcher,
     });
 
     const createResponse = await app.inject({
@@ -41,7 +57,7 @@ describe('server review APIs', () => {
 
     const request = createResponse.json().request as { id: string };
 
-    const reviewResponse = await app.inject({
+    const reviewPromise = app.inject({
       method: 'POST',
       url: `/api/requests/${request.id}/review`,
       payload: {
@@ -49,6 +65,12 @@ describe('server review APIs', () => {
         comment: 'Looks good',
       },
     });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    child.emit('spawn');
+    await new Promise((resolve) => setTimeout(resolve, 1_050));
+
+    const reviewResponse = await reviewPromise;
 
     expect(reviewResponse.statusCode).toBe(200);
 
@@ -61,7 +83,6 @@ describe('server review APIs', () => {
     expect(reviewed.status).toBe('closed');
     expect(reviewed.reviewState).toBe('approved');
     expect(reviewed.resumeStatus).toBe('succeeded');
-    expect(fetcher).toHaveBeenCalledTimes(1);
 
     await app.close();
   });

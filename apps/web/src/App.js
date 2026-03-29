@@ -6,6 +6,7 @@ import { fetchRequestDetail, fetchRequests, retryResume, submitReview, updateReq
 import { getShortcutEntries, isEditableTarget } from './lib/shortcuts.js';
 import './styles/tokens.css';
 import './styles/globals.css';
+const PENDING_RESUME_REFRESH_MS = 1500;
 export default function App() {
     const [requests, setRequests] = useState([]);
     const [selectedId, setSelectedId] = useState(null);
@@ -57,6 +58,36 @@ export default function App() {
             mounted = false;
         };
     }, [selectedId, reloadKey]);
+    useEffect(() => {
+        if (!selectedRequest || selectedRequest.resumeStatus !== 'pending') {
+            return;
+        }
+        const intervalId = window.setInterval(() => {
+            void fetchRequestDetail(selectedRequest.id).then((response) => {
+                setSelectedRequest((current) => {
+                    if (!current || current.id !== response.request.id) {
+                        return current;
+                    }
+                    return response.request;
+                });
+                setRequests((current) => current.map((request) => request.id === response.request.id
+                    ? {
+                        ...request,
+                        status: response.request.status,
+                        reviewState: response.request.reviewState,
+                        resumeStatus: response.request.resumeStatus,
+                        isEdited: response.request.isEdited,
+                        updatedAt: response.request.updatedAt,
+                        closedAt: response.request.closedAt,
+                    }
+                    : request));
+            }).catch(() => {
+            });
+        }, PENDING_RESUME_REFRESH_MS);
+        return () => {
+            window.clearInterval(intervalId);
+        };
+    }, [selectedRequest]);
     useEffect(() => {
         function onKeyDown(event) {
             if (isEditableTarget(event.target)) {

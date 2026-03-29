@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -23,6 +23,42 @@ export interface OpenClawResumeRequest {
 export interface OpenClawResumeResponse {
   responseId?: string;
   rawResponse: unknown;
+}
+
+const DISPATCH_ACCEPTED_GRACE_MS = 1_000;
+const OUTPUT_LOG_LIMIT = 500;
+const OUTPUT_CAPTURE_LIMIT = 16_000;
+
+function appendOutput(target: string, chunk: string): string {
+  if (target.length >= OUTPUT_CAPTURE_LIMIT) {
+    return target;
+  }
+
+  const remaining = OUTPUT_CAPTURE_LIMIT - target.length;
+  return target + chunk.slice(0, remaining);
+}
+
+function parseCliOutput(stdout: string): OpenClawResumeResponse {
+  let parsed: unknown = null;
+
+  try {
+    parsed = JSON.parse(stdout) as unknown;
+  } catch {
+    parsed = stdout;
+  }
+
+  const responseId =
+    typeof parsed === 'object' &&
+    parsed !== null &&
+    'id' in parsed &&
+    typeof (parsed as Record<string, unknown>).id === 'string'
+      ? ((parsed as Record<string, unknown>).id as string)
+      : undefined;
+
+  return {
+    responseId,
+    rawResponse: parsed,
+  };
 }
 
 /**
@@ -162,40 +198,121 @@ export class OpenClawClient {
         args,
       });
 
-      execFile(openclawBin, args, {
+      const child = spawn(openclawBin, args, {
         timeout: 130_000,
         env: { ...process.env },
-      }, (error, stdout, stderr) => {
-        if (stderr) {
-          console.log('[openclaw-client] CLI stderr:', stderr.slice(0, 500));
-        }
+      });
 
-        if (error) {
-          console.error('[openclaw-client] CLI error:', error.message);
-          reject(new Error(`OpenClaw CLI resume failed: ${error.message}${stderr ? `\nstderr: ${stderr.slice(0, 500)}` : ''}`));
+      let stdout = '';
+      let stderr = '';
+      let settled = false;
+      let dispatchAccepted = false;
+      let acceptanceTimer: NodeJS.Timeout | null = null;
+
+      function clearAcceptanceTimer(): void {
+        if (acceptanceTimer) {
+          clearTimeout(acceptanceTimer);
+          acceptanceTimer = null;
+        }
+      }
+
+      function rejectBeforeAcceptance(message: string): void {
+        if (settled) {
+          console.error('[openclaw-client] CLI error after dispatch acceptance:', message);
           return;
         }
 
-        console.log('[openclaw-client] CLI stdout:', stdout.slice(0, 500));
+        settled = true;
+        clearAcceptanceTimer();
+        reject(new Error(message));
+      }
 
-        let parsed: unknown = null;
-        try {
-          parsed = JSON.parse(stdout) as unknown;
-        } catch {
-          parsed = stdout;
+      function resolveSuccess(payload: OpenClawResumeResponse): void {
+        if (settled) {
+          return;
         }
 
-        const responseId =
-          typeof parsed === 'object' &&
-          parsed !== null &&
-          'id' in parsed &&
-          typeof (parsed as Record<string, unknown>).id === 'string'
-            ? (parsed as Record<string, unknown>).id as string
-            : undefined;
+        settled = true;
+        clearAcceptanceTimer();
+        resolve(payload);
+      }
 
-        resolve({
-          responseId,
-          rawResponse: parsed,
+      child.stdout.on('data', (chunk: Buffer | string) => {
+        stdout = appendOutput(stdout, chunk.toString());
+      });
+
+      child.stderr.on('data', (chunk: Buffer | string) => {
+        stderr = appendOutput(stderr, chunk.toString());
+      });
+
+      child.once('error', (error) => {
+        const suffix = stderr ? `\nstderr: ${stderr.slice(0, OUTPUT_LOG_LIMIT)}` : '';
+        rejectBeforeAcceptance(`OpenClaw CLI resume failed: ${error.message}${suffix}`);
+      });
+
+      child.once('spawn', () => {
+        acceptanceTimer = setTimeout(() => {
+          dispatchAccepted = true;
+
+          if (stdout) {
+            console.log('[openclaw-client] CLI stdout before acceptance:', stdout.slice(0, OUTPUT_LOG_LIMIT));
+          }
+          if (stderr) {
+            console.log('[openclaw-client] CLI stderr before acceptance:', stderr.slice(0, OUTPUT_LOG_LIMIT));
+          }
+
+          console.log('[openclaw-client] CLI dispatch accepted; tracking completion in background.');
+          resolveSuccess({
+            responseId: undefined,
+            rawResponse: {
+              status: 'accepted',
+            },
+          });
+        }, DISPATCH_ACCEPTED_GRACE_MS);
+      });
+
+      child.once('close', (code, signal) => {
+        const stdoutPreview = stdout.slice(0, OUTPUT_LOG_LIMIT);
+        const stderrPreview = stderr.slice(0, OUTPUT_LOG_LIMIT);
+
+        if (stderrPreview) {
+          console.log('[openclaw-client] CLI stderr:', stderrPreview);
+        }
+
+        if (code === 0) {
+          const parsed = parseCliOutput(stdout);
+
+          if (!dispatchAccepted) {
+            if (stdoutPreview) {
+              console.log('[openclaw-client] CLI stdout:', stdoutPreview);
+            }
+            resolveSuccess(parsed);
+            return;
+          }
+
+          console.log('[openclaw-client] CLI completed after dispatch acceptance:', {
+            responseId: parsed.responseId ?? null,
+            signal: signal ?? null,
+          });
+          return;
+        }
+
+        const message =
+          `OpenClaw CLI resume failed: exited with code ${code ?? 'null'}`
+          + `${signal ? ` (signal: ${signal})` : ''}`
+          + `${stderrPreview ? `\nstderr: ${stderrPreview}` : ''}`
+          + `${stdoutPreview ? `\nstdout: ${stdoutPreview}` : ''}`;
+
+        if (!dispatchAccepted) {
+          rejectBeforeAcceptance(message);
+          return;
+        }
+
+        console.warn('[openclaw-client] CLI exited after dispatch acceptance:', {
+          code,
+          signal: signal ?? null,
+          stderr: stderrPreview || null,
+          stdout: stdoutPreview || null,
         });
       });
     });

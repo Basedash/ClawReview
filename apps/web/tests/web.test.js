@@ -53,6 +53,19 @@ const detailPayload = {
 };
 describe('web app', () => {
     beforeEach(() => {
+        Object.defineProperty(window, 'matchMedia', {
+            writable: true,
+            value: vi.fn().mockImplementation(() => ({
+                matches: false,
+                media: '(prefers-color-scheme: dark)',
+                onchange: null,
+                addListener: vi.fn(),
+                removeListener: vi.fn(),
+                addEventListener: vi.fn(),
+                removeEventListener: vi.fn(),
+                dispatchEvent: vi.fn(),
+            })),
+        });
         const fetchMock = vi.fn(async (input) => {
             const url = String(input);
             if (url.includes('/api/requests?')) {
@@ -78,7 +91,7 @@ describe('web app', () => {
         expect(await screen.findByRole('textbox', {
             name: /review markdown editor/i,
         })).toBeInTheDocument();
-        expect(await screen.findByText('Metadata')).toBeInTheDocument();
+        expect(await screen.findByText('Review')).toBeInTheDocument();
         expect(await screen.findByText('Activity')).toBeInTheDocument();
     });
 });

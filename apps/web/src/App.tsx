@@ -22,6 +22,7 @@ import './styles/tokens.css';
 import './styles/globals.css';
 
 type SaveState = 'idle' | 'saving' | 'saved' | 'error';
+const PENDING_RESUME_POLL_MS = 2_000;
 
 export default function App() {
   const [requests, setRequests] = useState<RequestListItem[]>([]);
@@ -84,6 +85,44 @@ export default function App() {
       mounted = false;
     };
   }, [selectedId, reloadKey]);
+
+  useEffect(() => {
+    if (!selectedRequest || selectedRequest.resumeStatus !== 'pending') {
+      return;
+    }
+
+    let cancelled = false;
+
+    const intervalId = window.setInterval(() => {
+      void fetchRequestDetail(selectedRequest.id).then((response) => {
+        if (cancelled) {
+          return;
+        }
+
+        setSelectedRequest(response.request);
+        setRequests((current) =>
+          current.map((request) =>
+            request.id === response.request.id
+              ? {
+                  ...request,
+                  status: response.request.status,
+                  reviewState: response.request.reviewState,
+                  resumeStatus: response.request.resumeStatus,
+                  isEdited: response.request.isEdited,
+                  updatedAt: response.request.updatedAt,
+                  closedAt: response.request.closedAt,
+                }
+              : request,
+          ),
+        );
+      });
+    }, PENDING_RESUME_POLL_MS);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [selectedRequest]);
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {

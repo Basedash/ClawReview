@@ -1,8 +1,21 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { ChildProcessWithoutNullStreams } from 'node:child_process';
+import { EventEmitter } from 'node:events';
 
 import type { RequestDetail, ReviewRecord } from '@clawreview/shared';
 
 import { OpenClawHarnessAdapter } from '../src/adapters/openclaw-adapter.js';
+
+interface MockChildProcess extends EventEmitter {
+  stdout: EventEmitter;
+  stderr: EventEmitter;
+}
+
+vi.mock('node:child_process', () => ({
+  spawn: vi.fn(),
+}));
+
+const { spawn: spawnMock } = await import('node:child_process');
 
 function createRequest(): RequestDetail {
   const now = new Date().toISOString();
@@ -51,6 +64,14 @@ function createReview(): ReviewRecord {
 }
 
 describe('OpenClawHarnessAdapter', () => {
+  beforeEach(() => {
+    spawnMock.mockReset();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('builds a deterministic continuation message', () => {
     const adapter = new OpenClawHarnessAdapter({
       baseUrl: 'http://127.0.0.1:3456',
@@ -71,33 +92,75 @@ describe('OpenClawHarnessAdapter', () => {
     expect(message).toContain('# Original');
   });
 
-  it('dispatches resume requests with routing headers', async () => {
-    const fetcher = vi.fn(async (_url: string, init?: RequestInit) => {
-      return {
-        ok: true,
-        status: 200,
-        text: async () => JSON.stringify({ id: 'resp_123', init }),
-      } as unknown as Response;
-    });
+  it('marks resume as accepted once the CLI stays alive long enough to dispatch', async () => {
+    vi.useFakeTimers();
+
+    const child = new EventEmitter() as MockChildProcess;
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    spawnMock.mockReturnValue(child as unknown as ChildProcessWithoutNullStreams);
 
     const adapter = new OpenClawHarnessAdapter(
       {
         baseUrl: 'http://127.0.0.1:3456',
         gatewayToken: 'token',
       },
-      fetcher as unknown as typeof fetch,
     );
 
-    const result = await adapter.resumeReview(createRequest(), createReview());
+    const resumePromise = adapter.resumeReview(createRequest(), createReview());
 
-    expect(fetcher).toHaveBeenCalledTimes(1);
-    const [url, init] = fetcher.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe('http://127.0.0.1:3456/v1/responses');
-    expect(init.headers).toMatchObject({
-      Authorization: 'Bearer token',
-      'x-openclaw-agent-id': 'agent-1',
-      'x-openclaw-session-key': 'main',
+    child.emit('spawn');
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    const result = await resumePromise;
+
+    expect(spawnMock).toHaveBeenCalledTimes(1);
+    const [binary, args, options] = spawnMock.mock.calls[0] as [
+      string,
+      string[],
+      { timeout: number; env: NodeJS.ProcessEnv },
+    ];
+    expect(binary).toBe('/home/openclaw/.npm-global/bin/openclaw');
+    expect(args).toMatchObject([
+      'agent',
+      '--message',
+      expect.stringContaining('Decision: comment'),
+      '--deliver',
+      '--json',
+      '--timeout',
+      '120',
+      '--agent',
+      'agent-1',
+      '--reply-to',
+      'main',
+    ]);
+    expect(options.timeout).toBe(130_000);
+    expect(result.rawResponse).toEqual({
+      status: 'accepted',
     });
-    expect(result.responseId).toBe('resp_123');
+    expect(result.responseId).toBeUndefined();
+  });
+
+  it('propagates CLI failures that happen before dispatch acceptance', async () => {
+    vi.useFakeTimers();
+
+    const child = new EventEmitter() as MockChildProcess;
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    spawnMock.mockReturnValue(child as unknown as ChildProcessWithoutNullStreams);
+
+    const adapter = new OpenClawHarnessAdapter({
+      baseUrl: 'http://127.0.0.1:3456',
+      gatewayToken: 'token',
+    });
+
+    const resumePromise = adapter.resumeReview(createRequest(), createReview());
+
+    child.stderr.emit('data', 'missing binary');
+    child.emit('error', new Error('spawn ENOENT'));
+
+    await expect(resumePromise).rejects.toThrow(
+      'OpenClaw CLI resume failed: spawn ENOENT',
+    );
   });
 });
